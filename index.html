@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#090d14" />
+  <title>ThetaTree · 期权比率价差模拟终端</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.9/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <style>
+    :root{color-scheme:dark;--bg:#090d14;--panel:#101620;--border:#25303e;--muted:#8390a5;--green:#a7f36b;--cyan:#55c9ee;--red:#ff7388}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#e8edf5;font:14px/1.6 Inter,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}button,input,select{font:inherit}button{cursor:pointer;transition:background .15s,border-color .15s}button:disabled{opacity:.4;cursor:not-allowed}button:focus-visible,summary:focus-visible{outline:2px solid var(--green);outline-offset:4px}input:focus,select:focus{outline:1px solid var(--cyan);border-color:var(--cyan)}a{color:var(--cyan)}
+    .mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-variant-numeric:tabular-nums}.muted{color:var(--muted)}.positive{color:var(--green)}.negative{color:var(--red)}.panel{background:var(--panel);border:1px solid var(--border);border-radius:14px}.panel-head{padding:19px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px}.eyebrow{font-size:10px;letter-spacing:.16em;color:var(--muted);font-weight:600}.btn{border:1px solid #344051;background:#19222e;border-radius:7px;padding:8px 13px;color:#dfe6ef;font-size:12px;font-weight:600;white-space:nowrap}.btn:hover{background:#253247;border-color:#607187}.btn-primary{background:var(--green);color:#17220d;border-color:var(--green)}.btn-primary:hover{background:#b9ff85;border-color:#b9ff85}.btn-ghost{background:transparent}.badge{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border-radius:5px;font-size:10px;letter-spacing:.04em;background:#1a2634;border:1px solid #2c3a4d}.dot{display:inline-block;height:6px;width:6px;border-radius:50%;background:currentColor;box-shadow:0 0 9px currentColor}.number-input,select{width:100%;background:#0c121c;border:1px solid #2b3748;border-radius:5px;color:#e3eaf3;padding:6px 8px;min-height:34px}.number-input{font-family:Consolas,monospace}input[type=number]{appearance:textfield}input::-webkit-inner-spin-button{appearance:none}input[type=range]{appearance:none;display:block;width:100%;height:4px;border-radius:4px;outline:none;cursor:pointer}input[type=range]::-webkit-slider-thumb{appearance:none;width:15px;height:15px;border-radius:50%;background:#d2ffa8;border:3px solid #668d46;box-shadow:0 0 0 4px #a7f36b0a}input[type=range]::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:#d2ffa8;border:3px solid #668d46}.slider-box{padding:18px 20px;background:#0d141e;border:1px solid #222e3e;border-radius:9px}.stat{padding:19px 22px;min-width:0}.stat-value{font-size:27px;letter-spacing:-1px;line-height:1.35;font-weight:500}.divider{border-top:1px solid var(--border)}.chart-wrap{position:relative;height:360px;padding:10px 14px 0}.chart-wrap canvas{width:100%!important;height:100%!important}.side-card{padding:15px;border:1px solid #2a3544;border-radius:9px;background:#121c29}.trade-table{width:100%;border-collapse:collapse;min-width:740px}.trade-table th{text-align:left;color:var(--muted);font-size:10px;font-weight:500;padding:11px 12px;white-space:nowrap}.trade-table td{padding:10px 12px;border-top:1px solid #202c3c;font-size:12px}.trade-table tr:hover{background:#141f2c}.trade-table .number-input{max-width:100px}.trade-table select{min-width:85px}.toast{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);background:#203224;border:1px solid #577d42;padding:12px 20px;border-radius:9px;z-index:50;box-shadow:0 10px 50px #0008;max-width:90vw}.guide{background:linear-gradient(120deg,#17251b,#111c23);border:1px solid #304737;border-radius:10px}.zone{padding:10px;border-left:1px solid #293745}.zone:first-child{border-left:0}.metric-small{font-size:11px;color:var(--muted)}.ledger{max-height:160px;overflow-y:auto;scrollbar-width:thin}summary{cursor:pointer}::selection{background:#a7f36b35}
+    @media(min-width:1280px){.workspace{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px}}@media(max-width:1279px){.workspace{display:grid;gap:20px}.assistant-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.assistant-grid .side-card{margin:0}}@media(max-width:767px){.chart-wrap{height:310px;padding-left:4px;padding-right:4px}.stat{padding:14px}.stat-value{font-size:23px}.panel-head{padding:15px}.assistant-grid{grid-template-columns:1fr}.zone{font-size:10px;padding:7px}.desktop-label{display:none}.number-input{font-size:16px}}
+  </style>
+</head>
+<body>
+  <div id="root"><div style="padding:60px;text-align:center;color:#a7f36b">ThetaTree · 正在载入模拟终端…<p style="color:#8390a5">首次运行需要联网加载 CDN 依赖。</p></div></div>
+  <noscript>请启用 JavaScript 以运行 ThetaTree。</noscript>
+  <script>
+    // If a CDN dependency fails, make the failure visible instead of leaving a blank screen.
+    window.addEventListener('load', function () {
+      if (!window.React || !window.ReactDOM || !window.Babel || !window.Chart) {
+        document.getElementById('root').innerHTML = '<div style="padding:60px;text-align:center">CDN 依赖加载失败。请检查网络后刷新页面。<p>需要 React 18、ReactDOM、Babel 和 Chart.js。</p></div>';
+      }
+    });
+  </script>
+  <script id="pricing-engine">
+    'use strict';
+    // Standard normal CDF: rational approximation in the central region,
+    // continued fraction in the tails. Absolute error is near double precision.
+    const SQRT_2PI = Math.sqrt(2 * Math.PI);
+    function normalPDF(x) { return Math.exp(-0.5 * x * x) / SQRT_2PI; }
+    function normalCDF(x) {
+      if (Number.isNaN(x)) return NaN;
+      if (x === 0) return 0.5;
+      const y = Math.abs(x);
+      if (y > 37) return x > 0 ? 1 : 0;
+      const e = Math.exp(-0.5 * y * y);
+      let tail;
+      if (y < 7.0710678118654755) {
+        const n = ((((((0.0352624965998911*y+0.700383064443688)*y+6.37396220353165)*y+33.9128660783830)*y+112.079291497871)*y+221.213596169931)*y+220.206867912376);
+        const d = (((((((0.0883883476483184*y+1.75566716318264)*y+16.0641775792070)*y+86.7807322029461)*y+296.564248779674)*y+637.333633378831)*y+793.826512519948)*y+440.413735824752);
+        tail = e * n / d;
+      } else {
+        tail = e / (y + 1/(y + 2/(y + 3/(y + 4/(y + 0.65))))) / SQRT_2PI;
+      }
+      return x > 0 ? 1-tail : tail;
+    }
+    // T in YEARS, sigma/r/q in decimals. Greeks per option share;
+    // theta per calendar day, vega per one percentage point of IV.
+    // European exercise, continuous compounding, constant volatility.
+    function blackScholes(type, S, K, T, sigma, r=0.04, q=0) {
+      if (!['put','call'].includes(type) || ![S,K,T,sigma,r,q].every(Number.isFinite) || S<0 || K<=0 || T<0 || sigma<0) throw new RangeError('Invalid Black–Scholes inputs');
+      const call = type === 'call';
+      if (T === 0) {
+        const callDelta = S>K ? 1 : S<K ? 0 : 0.5;
+        return {price:Math.max(call?S-K:K-S,0),delta:call?callDelta:callDelta-1,gamma:0,theta:0,vega:0};
+      }
+      const dq=Math.exp(-q*T), dr=Math.exp(-r*T);
+      if (S === 0) return {price:call?0:K*dr,delta:call?0:-dq,gamma:0,theta:call?0:r*K*dr/365,vega:0};
+      if (sigma === 0) {
+        const forwardDiff=S*dq-K*dr, active=call?forwardDiff>0:forwardDiff<0;
+        return {price:Math.max(call?forwardDiff:-forwardDiff,0),delta:active?(call?dq:-dq):0,gamma:0,theta:active?(call?q*S*dq-r*K*dr:r*K*dr-q*S*dq)/365:0,vega:0};
+      }
+      const rootT=Math.sqrt(T), d1=(Math.log(S/K)+(r-q+sigma*sigma/2)*T)/(sigma*rootT), d2=d1-sigma*rootT;
+      const pdf=normalPDF(d1), base=-S*dq*pdf*sigma/(2*rootT);
+      return {
+        price:Math.max(0,call?S*dq*normalCDF(d1)-K*dr*normalCDF(d2):K*dr*normalCDF(-d2)-S*dq*normalCDF(-d1)),
+        delta:call?dq*normalCDF(d1):-dq*normalCDF(-d1),
+        gamma:dq*pdf/(S*sigma*rootT),
+        theta:(call?base-r*K*dr*normalCDF(d2)+q*S*dq*normalCDF(d1):base+r*K*dr*normalCDF(-d2)-q*S*dq*normalCDF(-d1))/365,
+        vega:S*dq*pdf*rootT/100
+      };
+    }
+    const DEFAULT_SCENARIO = {s:135,iv:65,days:30,r:4};
+    const multiplier = leg => leg.type==='stock'?1:100;
+    function mark(leg, scenario, spot=scenario.s, expiry=false) {
+      if (leg.type==='stock') return {price:spot,delta:1,gamma:0,theta:0,vega:0};
+      return blackScholes(leg.type,spot,leg.strike,expiry?0:scenario.days/365,scenario.iv/100,scenario.r/100);
+    }
+    let nextId=0;
+    function makeLeg(type,strike,qty,scenario,tag='custom') {
+      const leg={id:++nextId,type,strike,qty,tag,entry:0};
+      leg.entry=mark(leg,scenario).price;
+      return leg;
+    }
+    function createBook(scenario=DEFAULT_SCENARIO, mode='ratio') {
+      const legs=[makeLeg('put',135,1,scenario,'base'),makeLeg('put',125,-2,scenario,'short')];
+      if(mode!=='ratio') legs.push(makeLeg('put',115,2,scenario,'protection'));
+      if(mode==='w') legs.push(makeLeg('call',135,1,scenario,'wing'));
+      return {legs,realized:0,log:[],mode};
+    }
+    function pnl(book,scenario,spot=scenario.s,expiry=false) {
+      return book.realized+book.legs.reduce((sum,leg)=>sum+leg.qty*multiplier(leg)*(mark(leg,scenario,spot,expiry).price-leg.entry),0);
+    }
+    function portfolioGreeks(book,scenario) {
+      return book.legs.reduce((out,leg)=>{
+        const g=mark(leg,scenario), scale=leg.qty*multiplier(leg);
+        for(const name of ['delta','gamma','theta','vega']) out[name]+=g[name]*scale;
+        return out;
+      },{delta:0,gamma:0,theta:0,vega:0});
+    }
+    // Exact piecewise-linear expiry roots on the WHOLE domain S>=0,
+    // including flat zero intervals and the unbounded final segment.
+    function expiryAnalysis(book,scenario) {
+      const knots=[...new Set([0,...book.legs.filter(l=>l.type!=='stock').map(l=>l.strike)])].sort((a,b)=>a-b);
+      const value=s=>pnl(book,scenario,s,true), roots=[], intervals=[];
+      const add=x=>{if(x>=0&&!roots.some(y=>Math.abs(y-x)<1e-6)) roots.push(x);};
+      for(let i=0;i<knots.length-1;i++){
+        const a=knots[i],b=knots[i+1],fa=value(a),fb=value(b);
+        if(Math.abs(fa)<1e-8&&Math.abs(fb)<1e-8){intervals.push([a,b]);continue;}
+        if(Math.abs(fa)<1e-8)add(a);
+        if(fa*fb<0)add(a-fa*(b-a)/(fb-fa));
+        if(Math.abs(fb)<1e-8)add(b);
+      }
+      const last=knots[knots.length-1],f=value(last);
+      const slope=book.legs.reduce((s,l)=>s+(l.type==='put'?0:l.qty*multiplier(l)),0);
+      if(Math.abs(slope)<1e-10){if(Math.abs(f)<1e-8)intervals.push([last,Infinity]);}
+      else{const x=last-f/slope;if(x>=last-1e-8)add(Math.max(last,x));}
+      const vals=knots.map(value);
+      return {roots:roots.filter(x=>!intervals.some(([a,b])=>x>=a&&x<=b)).sort((a,b)=>a-b),intervals,min:slope<0?-Infinity:Math.min(...vals),max:slope>0?Infinity:Math.max(...vals),knots,slope};
+    }
+    // Simulated close/reopen at the same mark preserves total P&L at execution.
+    function replaceLeg(book,id,replacement,scenario) {
+      const old=book.legs.find(l=>l.id===id);
+      if(!old)return book;
+      const realized=book.realized+old.qty*multiplier(old)*(mark(old,scenario).price-old.entry);
+      return {...book,realized,legs:book.legs.flatMap(l=>l.id===id?(replacement?[replacement]:[]):[l]),mode:'custom'};
+    }
+    window.ThetaEngine={normalCDF,normalPDF,blackScholes,mark,pnl,portfolioGreeks,expiryAnalysis,createBook,makeLeg,replaceLeg,DEFAULT_SCENARIO};
+  </script>
+  <script type="text/babel" data-presets="react">
+    const {useState,useMemo,useRef,useEffect,useLayoutEffect}=React;
+    const fmt=(n,d=2)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):n<0?'−∞':'+∞';
+    const usd=(n,d=2)=>(n< -0.000001?'−':'')+'$'+fmt(Math.abs(n),d);
+    const signed=(n,d=2)=>(n>0?'+':'')+fmt(n,d);
+    const tone=n=>n>=-0.00001?'positive':'negative';
+    function Icon({name,size=18,...props}) {
+      const paths={tree:<><path d="M12 3v18M12 10 5 6M12 15l7-5M12 19l-7-4"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="10" r="2"/><circle cx="5" cy="15" r="2"/><circle cx="12" cy="3" r="2"/></>,arrow:<path d="m7 17 10-10M7 7h10v10"/>,shield:<><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/></>,refresh:<><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></>,plus:<path d="M12 5v14M5 12h14"/>,close:<path d="m6 6 12 12M6 18 18 6"/>,chart:<><path d="M4 3v17h17"/><path d="m6 14 4-5 4 7 6-10"/></>,bolt:<path d="m13 2-9 12h7l-1 8 10-13h-7Z"/>};
+      return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[name]||paths.chart}</svg>;
+    }
+    function NumberField({value,onCommit,label,min,max,step='any',nonzero=false}) {
+      const [draft,setDraft]=useState(String(value));
+      useEffect(()=>setDraft(String(value)),[value]);
+      const commit=e=>{
+        const n=Number(draft);
+        if(draft.trim()===''||!Number.isFinite(n)||(min!==undefined&&n<min)||(max!==undefined&&n>max)||(nonzero&&n===0)||(step===1&&!Number.isInteger(n))){
+          e.target.setCustomValidity('请输入范围内的有效'+(nonzero?'非零':'')+'数值');e.target.reportValidity();setDraft(String(value));return;
+        }
+        e.target.setCustomValidity('');if(n!==value)onCommit(n);
+      };
+      return <input className="number-input" type="number" aria-label={label} min={min} max={max} step={step} value={draft} onChange={e=>{e.target.setCustomValidity('');setDraft(e.target.value);}} onBlur={commit} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();if(e.key==='Escape'){setDraft(String(value));e.currentTarget.setCustomValidity('');}}}/>;
+    }
+    function Slider({label,symbol,value,min,max,step,format,onChange,id}) {
+      return <div className="slider-box"><div className="flex justify-between items-center mb-5"><label htmlFor={id} className="text-xs muted">{label} <span className="mono ml-1">{symbol}</span></label><output htmlFor={id} className="mono text-lg font-semibold">{format(value)}</output></div><input id={id} type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} style={{background:`linear-gradient(to right, #a7f36b ${(value-min)/(max-min)*100}%, #2b384a ${(value-min)/(max-min)*100}%)`}}/><div className="flex justify-between mt-3 mono text-[10px] muted"><span>{format(min)}</span><span>{format(max)}</span></div></div>;
+    }
+    const chartOverlay={id:'scenarioOverlay',afterDraw(chart,args,opts){
+      const {ctx,chartArea:a,scales:{x,y}}=chart;if(!a)return;
+      ctx.save();ctx.beginPath();ctx.rect(a.left,a.top,a.right-a.left,a.bottom-a.top);ctx.clip();
+      for(const k of opts.strikes||[]){const px=x.getPixelForValue(k);ctx.strokeStyle='#94a3b820';ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();}
+      const sx=x.getPixelForValue(opts.spot);ctx.strokeStyle='#e6edf58a';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(sx,a.top);ctx.lineTo(sx,a.bottom);ctx.stroke();ctx.setLineDash([]);
+      ctx.font='10px Consolas, monospace';ctx.fillStyle='#c5d0df';ctx.fillText('S $'+fmt(opts.spot,1),Math.min(Math.max(sx+7,a.left+4),a.right-70),a.top+15);
+      for(const root of opts.roots||[]){const px=x.getPixelForValue(root),py=y.getPixelForValue(0);ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fillStyle='#a7f36b';ctx.fill();}
+      ctx.restore();
+    }};
+    function PayoffChart({book,scenario,analysis}){
+      const canvas=useRef(null),chart=useRef(null),[latency,setLatency]=useState(0);
+      useEffect(()=>{
+        chart.current=new Chart(canvas.current,{type:'line',data:{datasets:[]},plugins:[chartOverlay],options:{responsive:true,maintainAspectRatio:false,animation:false,parsing:false,normalized:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#172330',borderColor:'#3c4d61',borderWidth:1,padding:12,titleColor:'#fff',bodyColor:'#d5dfeb',displayColors:true,filter:c=>c.datasetIndex<2,callbacks:{title:items=>items.length?'标的价格 '+usd(items[0].parsed.x):'',label:c=>c.dataset.label+'  '+usd(c.parsed.y)}}},scales:{x:{type:'linear',min:90,max:170,grid:{color:'#23304366'},border:{display:false},ticks:{color:'#8390a5',font:{family:'Consolas',size:10},maxTicksLimit:9,callback:v=>'$'+v}},y:{grid:{color:c=>c.tick.value===0?'#71809688':'#23304366'},border:{display:false},ticks:{color:'#8390a5',font:{family:'Consolas',size:10},maxTicksLimit:7,callback:v=>'$'+fmt(v,0)}}}}});
+        return()=>chart.current?.destroy();
+      },[]);
+      useEffect(()=>{
+        if(!chart.current)return;
+        const start=performance.now(), strikes=book.legs.filter(l=>l.type!=='stock').map(l=>l.strike);
+        const min=Math.max(0,Math.min(90,...strikes.map(k=>k-15))),max=Math.max(170,...strikes.map(k=>k+15));
+        // Include every exact strike and root: expiry corners are never rounded off.
+        const xs=[...new Set([...Array.from({length:401},(_,i)=>min+(max-min)*i/400),...strikes,scenario.s,...analysis.roots.filter(x=>x>=min&&x<=max)])].sort((a,b)=>a-b);
+        const expiration=xs.map(x=>({x,y:pnl(book,scenario,x,true)})),today=xs.map(x=>({x,y:pnl(book,scenario,x)}));
+        const c=chart.current;c.options.scales.x.min=min;c.options.scales.x.max=max;
+        c.options.plugins.scenarioOverlay={spot:scenario.s,strikes,roots:analysis.roots};
+        c.data.datasets=[{label:'到期损益',data:expiration,borderColor:'#a7f36b',borderWidth:2,pointRadius:0,pointHitRadius:8,tension:0,fill:{target:{value:0},above:'#a7f36b0b',below:'#ff73880c'}},{label:'当日动态损益',data:today,borderColor:'#55c9ee',borderWidth:2,pointRadius:0,borderDash:[5,4],tension:0},{label:'当前情景',data:[{x:scenario.s,y:pnl(book,scenario)}],borderColor:'#090d14',backgroundColor:'#55c9ee',pointRadius:5,pointHoverRadius:6,pointBorderWidth:2,showLine:false}];
+        c.update('none');setLatency(performance.now()-start);
+      },[book,scenario,analysis]);
+      return <><div className="chart-wrap"><canvas ref={canvas} id="payoff-chart" role="img" aria-label="到期损益与当日 Black–Scholes 动态损益曲线"/></div><div className="flex justify-between px-6 pb-4 pt-2 text-[10px] muted"><span>损益 / USD · 已计入权利金与已实现盈亏</span><span className="mono" data-testid="latency">{fmt(latency,1)} ms · {scenario.days}D</span></div></>;
+    }
+    function App(){
+      const [scenario,setScenario]=useState({...DEFAULT_SCENARIO}),[book,setBook]=useState(()=>createBook()),[history,setHistory]=useState([]),[toast,setToast]=useState(''),[info,setInfo]=useState(false);
+      const [calc,setCalc]=useState({type:'put',strike:135});
+      const greeks=useMemo(()=>portfolioGreeks(book,scenario),[book,scenario]);
+      const analysis=useMemo(()=>expiryAnalysis(book,scenario),[book,scenario]);
+      const current=pnl(book,scenario),atExpiry=pnl(book,scenario,scenario.s,true);
+      const shortPuts=book.legs.filter(l=>l.type==='put'&&l.qty<0),trigger=shortPuts.length?Math.max(...shortPuts.map(l=>l.strike)):null;
+      const breached=trigger!==null&&scenario.s<trigger;
+      const protection=book.legs.find(l=>l.tag==='protection');
+      const targetStrike=Math.max(1,(trigger??125)-10);
+      const nakedLeft=book.legs.filter(l=>l.type==='put').reduce((n,l)=>n-l.qty*100,0)+book.legs.filter(l=>l.type==='stock').reduce((n,l)=>n+l.qty,0)>0;
+      const single=blackScholes(calc.type,scenario.s,calc.strike,scenario.days/365,scenario.iv/100,scenario.r/100);
+      const netBasis=book.legs.reduce((v,l)=>v+l.qty*multiplier(l)*l.entry,0);
+      const hedgeShares=-Math.round(greeks.delta),rollLeg=shortPuts.slice().sort((a,b)=>b.strike-a.strike)[0];
+      const rollStrike=rollLeg?Math.max(1,rollLeg.strike-5):null;
+      const rootText=[...analysis.roots.map(x=>usd(x)),...analysis.intervals.map(([a,b])=>usd(a)+'–'+(b===Infinity?'∞':usd(b)))].join(' / ')||'无';
+      useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(t);},[toast]);
+      function updateScenario(key,value){setScenario(s=>({...s,[key]:value}));}
+      function transact(next,message,newScenario=scenario){
+        setHistory(h=>[...h.slice(-39),{book,scenario}]);
+        setBook({...next,log:[{id:Date.now()+Math.random(),message,s:scenario.s,iv:scenario.iv,days:scenario.days},...next.log].slice(0,60)});
+        setScenario({...newScenario});setToast(message);
+      }
+      function preset(mode){
+        // A short-dated, lower-IV educational example has a central PROFIT peak.
+        // Loading it explicitly starts a new book; it is not a cost-free hedge.
+        const s=mode==='w'?{s:135,iv:25,days:1,r:4}:{...DEFAULT_SCENARIO};
+        transact(createBook(s,mode),mode==='w'?'已新建 W 型示例：S $135 / IV 25% / 1 天；历史盈亏重置':'已新建默认 1:−2 比率价差；历史盈亏重置',s);
+      }
+      function toggleProtection(){
+        if(protection){transact(replaceLeg(book,protection.id,null,scenario),'已按当前理论价平仓保护腿，损益计入已实现盈亏');}
+        else{const leg=makeLeg('put',targetStrike,2,scenario,'protection');transact({...book,legs:[...book.legs,leg],mode:'custom'},`已买入 2 张 $${targetStrike} Put，支出 ${usd(leg.entry*200)}`);}
+      }
+      function protect(){if(!protection)toggleProtection();}
+      function completeW(){
+        const additions=[];
+        if(!protection)additions.push(makeLeg('put',targetStrike,2,scenario,'protection'));
+        if(!book.legs.some(l=>l.tag==='wing'))additions.push(makeLeg('call',135,1,scenario,'wing'));
+        if(!additions.length){setToast('保护腿与右侧 Call 已存在；可在持仓中调整');return;}
+        const cost=additions.reduce((s,l)=>s+l.entry*l.qty*100,0);
+        transact({...book,legs:[...book.legs,...additions],mode:'custom'},`已叠加 W 保护腿 / 右侧 Call，新增成本 ${usd(cost)}；实际形状取决于当前持仓`);
+      }
+      function roll(){
+        if(!rollLeg||rollStrike===rollLeg.strike)return;
+        const leg=makeLeg('put',rollStrike,rollLeg.qty,scenario,'short');
+        const cash=rollLeg.qty*100*(mark(rollLeg,scenario).price-leg.entry);
+        transact(replaceLeg(book,rollLeg.id,leg,scenario),`同到期日 Roll Down：$${rollLeg.strike} → $${rollStrike} Put；净现金流 ${usd(cash)}`);
+      }
+      function hedge(){
+        if(!hedgeShares)return;
+        const leg=makeLeg('stock',0,hedgeShares,scenario,'hedge');
+        transact({...book,legs:[...book.legs,leg],mode:'custom'},`已${hedgeShares<0?'卖空':'买入'} ${Math.abs(hedgeShares)} 股，成交价 ${usd(scenario.s)}，Delta 残差 ≤ 0.5 股`);
+      }
+      function editLeg(leg,field,value){
+        if(field==='entry'){
+          transact({...book,legs:book.legs.map(l=>l.id===leg.id?{...l,entry:value}:l)},'已修正入场成本基准（非交易）；历史盈亏随基准调整');return;
+        }
+        const changed={...leg,[field]:value};
+        if(field==='type'&&value!=='stock'&&changed.strike===0)changed.strike=135;
+        changed.tag='custom';changed.entry=mark(changed,scenario).price;
+        transact(replaceLeg(book,leg.id,changed,scenario),'已按当前理论价平旧开新；原腿损益已结算');
+      }
+      function undo(){const prev=history[history.length-1];if(!prev)return;setBook(prev.book);setScenario(prev.scenario);setHistory(h=>h.slice(0,-1));setToast('已撤销最近一次持仓操作，并恢复操作时的沙盘参数');}
+      const wReady=book.legs.length===4&&book.legs.some(l=>l.type==='put'&&l.strike===135&&l.qty===1)&&book.legs.some(l=>l.type==='put'&&l.strike===125&&l.qty===-2)&&book.legs.some(l=>l.type==='put'&&l.strike===115&&l.qty===2)&&book.legs.some(l=>l.type==='call'&&l.strike===135&&l.qty===1);
+      return <div className="max-w-[1600px] mx-auto px-4 md:px-8 pb-6">
+        <header className="flex items-center justify-between py-5 border-b border-[#25303e] gap-3">
+          <div className="flex items-center gap-3"><div className="bg-[#a7f36b] text-[#15220d] rounded-lg p-2"><Icon name="tree" size={25}/></div><div className="text-xl font-semibold tracking-tight">ThetaTree <span className="text-[10px] mono muted ml-2 desktop-label">OPTIONS LAB</span></div><div className="h-5 border-l border-[#344051] mx-3 hidden md:block"/><span className="text-xs muted hidden md:block">策略研究终端</span></div>
+          <div className="flex items-center gap-4"><span className="badge muted hidden sm:inline-flex"><span className="dot"/> 本地模拟 · 无实盘连接</span><button className="btn btn-ghost" onClick={()=>setInfo(!info)} aria-expanded={info}>模型说明 ↗</button></div>
+        </header>
+        <section className="flex flex-wrap justify-between items-end gap-5 pt-7 pb-6">
+          <div><div className="eyebrow mb-2">STRATEGY WORKSPACE / 01</div><h1 className="text-xl md:text-[27px] font-semibold tracking-tight">期权 1:−2 比率价差<span className="text-[#74839a] mx-2">/</span>W 型策略</h1><p className="text-xs muted mt-2">动态移仓与风险沙盘 <span className="mx-2">·</span> 调整市场情景，观察每一条腿如何改变收益。</p></div>
+          <div data-testid="signal" data-state={breached?'red':'green'} role="status" className={'rounded-lg border px-4 py-3 flex gap-3 items-center '+(breached?'border-[#73404b] bg-[#321c25] negative':'border-[#344f30] bg-[#172519] positive')}><span className="dot"/><div><div className="text-xs font-semibold">{breached?'跌破卖方行权价 · 需要关注':'未触发卖方行权价预警'}</div><div className="text-[10px] opacity-70 mono mt-1">{trigger===null?'NO SHORT PUT':`S ${fmt(scenario.s)} ${breached?'<':'≥'} K ${fmt(trigger)}`} · {greeks.gamma<0?'SHORT GAMMA':'LONG GAMMA'}</div></div></div>
+        </section>
+        {info&&<section className="panel p-5 mb-5 text-xs leading-6 muted"><h2 className="text-sm text-white mb-2">模型与记账口径</h2><p>SPCX / SpaceX 为用户指定的模拟标识，$135 为假设初始价格，不代表真实上市状态或行情。欧式 Black–Scholes 模型，统一到期日、统一 IV，股息率 q = 0，默认年化无风险利率 4%；每张期权 100 股，正股按股计算。不计手续费、滑点、保证金、借券费、资金利息及提前行权。</p><p>总损益 = 已实现盈亏 + Σ 数量 × 合约乘数 ×（当前价值 − 入场价）。滑块只改变估值情景，不改变入场成本；T 为假设剩余期限。到期线不受 S / IV / T 改变；S 改变光标，IV / T 改变当日曲线。移仓按当前理论价平旧开新；成本字段为手工修正历史基准。所有到期盈亏平衡点在 S ≥ 0 上精确分段求解。</p><p>Delta：等效持股数；Gamma：标的每涨 $1 的 Delta 变化；Theta：每自然日美元变化；Vega：IV 每增加 1 个百分点的美元变化。Roll Down 保持到期日，不模拟跨期展期。W 型两谷不保证微亏，期权成本和既有移仓损失决定曲线高度；左端盈利受 S ≥ 0 限制。</p><p className="mt-2">公式参考：<a href="https://martin-haugh.github.io/files/FoundationsFE/BlackScholes.pdf" target="_blank" rel="noreferrer">Martin Haugh · The Black–Scholes Model</a>；即时绘图：<a href="https://www.chartjs.org/docs/latest/developers/updates.html" target="_blank" rel="noreferrer">Chart.js 无动画更新</a>。</p></section>}
+        <section className="panel grid grid-cols-2 lg:grid-cols-4 divide-x divide-[#25303e] mb-5">
+          <div className="stat"><div className="eyebrow">SCENARIO P&L <span className="float-right">当日损益</span></div><div data-testid="pnl" className={'stat-value mono mt-3 '+tone(current)}>{usd(current)}</div><div className="metric-small mt-2">同价到期 <span className={'mono '+tone(atExpiry)}>{usd(atExpiry)}</span></div></div>
+          <div className="stat"><div className="eyebrow">NET DELTA <span className="float-right">Δ</span></div><div data-testid="delta" className="stat-value mono mt-3">{signed(greeks.delta)}</div><div className="metric-small mt-2">等效持股 · <span className="mono">股</span></div></div>
+          <div className="stat"><div className="eyebrow">NET GAMMA <span className="float-right">Γ</span></div><div data-testid="gamma" className={'stat-value mono mt-3 '+(greeks.gamma<0?'negative':'positive')}>{signed(greeks.gamma,3)}</div><div className="metric-small mt-2">Delta 变化 · <span className="mono">股 / $1</span></div></div>
+          <div className="stat"><div className="eyebrow">TIME & VOLATILITY <span className="float-right">Θ / ν</span></div><div className="flex gap-6 mt-3"><div><div className={'mono text-lg '+tone(greeks.theta)}>{signed(greeks.theta)}</div><div className="metric-small mt-1">Theta · $ / 天</div></div><div><div className={'mono text-lg '+tone(greeks.vega)}>{signed(greeks.vega)}</div><div className="metric-small mt-1">Vega · $ / 1% IV</div></div></div></div>
+        </section>
+        <div className="workspace">
+          <main className="min-w-0 space-y-5">
+            <section className="panel">
+              <div className="panel-head"><div className="flex gap-2 items-center"><Icon name="chart"/><h2 className="font-semibold text-sm">收益结构</h2><span className="badge text-[#a7f36b]">{wReady?'W STRUCTURE':'RATIO / CUSTOM'}</span></div><div className="hidden sm:flex gap-4 text-[10px]"><span><span className="inline-block w-4 border-t-2 border-[#a7f36b] mr-2 align-middle"/>到期损益</span><span><span className="inline-block w-4 border-t-2 border-dashed border-[#55c9ee] mr-2 align-middle"/>当日动态</span></div></div>
+              <div className="px-5 pt-4 flex justify-between gap-3"><div><span className="font-semibold">SPCX</span><span className="muted text-xs ml-2">SpaceX · 模拟标的</span><span className="mono ml-3">{usd(scenario.s)}</span></div><span className="eyebrow pt-1">PAYOFF PROFILE</span></div>
+              <div className="flex gap-4 text-[10px] sm:hidden px-5 pt-3"><span className="positive">— 到期损益</span><span className="text-[#55c9ee]">┄ 当日动态</span></div>
+              <PayoffChart book={book} scenario={scenario} analysis={analysis}/>
+              {wReady&&<div className="grid grid-cols-5 mx-5 mb-4 border border-[#293745] rounded-lg text-center text-[10px] muted"><div className="zone"><span className="positive">↖ 左翼拉升</span><div className="mono mt-1">S &lt; 115</div></div><div className="zone"><span className="negative">左谷 · 保护成本</span><div className="mono mt-1">{usd(pnl(book,scenario,115,true),0)}</div></div><div className="zone"><span className="positive">中心尖峰</span><div className="mono mt-1">{usd(pnl(book,scenario,125,true),0)}</div></div><div className="zone"><span className="negative">右谷 · 权利金</span><div className="mono mt-1">{usd(pnl(book,scenario,135,true),0)}</div></div><div className="zone"><span className="positive">右翼盈利 ↗</span><div className="mono mt-1">S &gt; 135</div></div></div>}
+              <div className="divider grid grid-cols-1 sm:grid-cols-3 text-xs"><div className="px-5 py-3"><div className="muted text-[10px]">到期盈亏平衡点 · 全域</div><div data-testid="breakeven" className="mono mt-1 break-words text-[#cdd9e9]">{rootText}</div></div><div className="px-5 py-3"><div className="muted text-[10px]">到期最大盈利 · S ≥ 0</div><div className={'mono mt-1 '+tone(analysis.max)}>{analysis.max===Infinity?'无限上行':usd(analysis.max)}</div></div><div className="px-5 py-3"><div className="muted text-[10px]">到期最大亏损 · S ≥ 0</div><div className="mono mt-1 negative">{analysis.min===-Infinity?'无限亏损':usd(Math.max(0,-analysis.min))}</div></div></div>
+            </section>
+            <section className="panel p-5"><div className="flex items-center justify-between mb-4"><h2 className="font-semibold text-sm flex gap-2 items-center"><Icon name="bolt"/>实时情景沙盘</h2><button className="text-[10px] muted hover:text-white" onClick={()=>setScenario({...DEFAULT_SCENARIO})}>重置参数 ↺</button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><Slider id="spot-slider" label="标的现价" symbol="S" value={scenario.s} min={90} max={170} step={0.1} format={v=>'$'+fmt(v,1)} onChange={v=>updateScenario('s',v)}/><Slider id="iv-slider" label="隐含波动率" symbol="IV" value={scenario.iv} min={15} max={100} step={1} format={v=>v+'%'} onChange={v=>updateScenario('iv',v)}/><Slider id="days-slider" label="剩余天数" symbol="T" value={scenario.days} min={1} max={60} step={1} format={v=>v+' 天'} onChange={v=>updateScenario('days',v)}/></div><p className="text-[10px] muted mt-3">固定入场成本 · 参数变化即时重估；到期折线保持不变，现价定位线与动态曲线同步更新。</p></section>
+            <section className="panel overflow-hidden">
+              <div className="panel-head flex-wrap"><div><h2 className="font-semibold text-sm">持仓构建器 <span className="mono text-xs muted ml-2">{book.legs.length} LEGS</span></h2></div><div className="flex gap-2 flex-wrap"><button className="btn btn-ghost" onClick={undo} disabled={!history.length}>撤销</button><button className="btn" onClick={()=>transact({...book,legs:[...book.legs,makeLeg('put',Math.round(scenario.s/5)*5,1,scenario)],mode:'custom'},'已按当前理论价新增 1 张 Put')}>＋ 添加腿</button></div></div>
+              <div className="px-5 py-3 flex flex-wrap gap-2"><button className={'btn '+(!protection?'btn-ghost':'border-[#628949] text-[#a7f36b]')} onClick={toggleProtection} aria-pressed={!!protection}>{protection?'✓ 平仓保护腿':`＋ 2× $${targetStrike} Put 保护`}</button><button className="btn btn-ghost" onClick={completeW}>叠加 W 左右翼</button></div>
+              <div className="overflow-x-auto"><table className="trade-table"><thead><tr><th>方向 / 数量</th><th>合约类型</th><th>行权价 $</th><th>入场价 $ / 股</th><th>理论价 $ / 股</th><th>Delta · 股</th><th>浮动损益 $</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{book.legs.map((leg,i)=>{const m=mark(leg,scenario);return <tr key={leg.id}><td><div className="flex items-center gap-2"><span className={'text-[9px] w-7 '+(leg.qty>0?'positive':'negative')}>{leg.qty>0?'BUY':'SELL'}</span><NumberField label={`第${i+1}腿数量`} value={leg.qty} min={-10000} max={10000} step={1} nonzero onCommit={v=>editLeg(leg,'qty',v)}/></div></td><td><select aria-label={`第${i+1}腿类型`} value={leg.type} onChange={e=>editLeg(leg,'type',e.target.value)}><option value="put">PUT</option><option value="call">CALL</option><option value="stock">正股</option></select></td><td>{leg.type==='stock'?<span className="muted">—</span>:<NumberField label={`第${i+1}腿行权价`} min={1} max={10000} value={leg.strike} onCommit={v=>editLeg(leg,'strike',v)}/>}</td><td><NumberField label={`第${i+1}腿入场价`} min={0} max={100000} value={Number(leg.entry.toFixed(6))} onCommit={v=>editLeg(leg,'entry',v)}/></td><td className="mono">{fmt(m.price,4)}</td><td className="mono">{signed(m.delta*leg.qty*multiplier(leg))}</td><td className={'mono '+tone((m.price-leg.entry)*leg.qty)}>{signed((m.price-leg.entry)*leg.qty*multiplier(leg))}</td><td><button className="muted hover:text-[#ff7388]" aria-label={`平仓第${i+1}腿`} onClick={()=>transact(replaceLeg(book,leg.id,null,scenario),'已平仓该腿，浮动损益转入已实现盈亏')}><Icon name="close" size={14}/></button></td></tr>;})}{!book.legs.length&&<tr><td colSpan="8" className="text-center muted">当前为空仓。添加腿或载入预设以继续模拟。</td></tr>}</tbody></table></div>
+              <div className="px-5 py-3 divider flex justify-between flex-wrap gap-3 text-[11px]"><span className="muted">持仓净{netBasis>=0?'支出':'收入'} <span className="mono text-white ml-2">{usd(Math.abs(netBasis))}</span></span><span className="muted">已实现盈亏 <span data-testid="realized" className={'mono ml-2 '+tone(book.realized)}>{usd(book.realized)}</span></span></div><p className="px-5 pb-4 text-[10px] muted">数量：正数买入、负数卖出；期权按张、正股按股。修改类型 / 数量 / 行权价会平旧开新；入场价可手工修正。输入后按 Enter 或移开焦点生效。</p>
+            </section>
+          </main>
+          <aside className="space-y-5 min-w-0">
+            <section className="panel"><div className="panel-head"><h2 className="font-semibold text-sm flex items-center gap-2"><Icon name="shield"/>动态移仓助手</h2><span className={'badge '+(breached?'negative':'positive')}>{breached?'TRIGGERED':'MONITORING'}</span></div><div className="p-4">
+              <div role={breached?'alert':'status'} className={'rounded-lg p-3 mb-4 text-xs leading-6 '+(breached?'bg-[#321c25] text-[#f5a5b1]':'bg-[#1b2920] text-[#b8d5a6]')}>{breached?`现价 ${usd(scenario.s)} 已跌破卖方行权价 ${usd(trigger)}。${nakedLeft?'下跌方向仍有尾部亏损敞口。':'已有左侧保护，但谷底亏损仍需关注。'}`:trigger===null?'当前无卖出 Put，未启用下破触发。':'等待下破卖方行权价；绿灯仅表示未触发，不代表组合无风险。'}<div className="text-[10px] opacity-80 mt-1">Net Δ {signed(greeks.delta)} · Net Γ {signed(greeks.gamma,3)}</div></div>
+              <div className="assistant-grid space-y-3">
+                <div className="side-card"><div className="eyebrow mb-2">01 / LEFT TAIL</div><h3 className="text-sm font-semibold">追买 ${targetStrike} Put</h3><p className="text-[11px] muted mt-2 mb-3">买入 2 张低行权价 Put，抬升左侧尾部。当前预计支出 <span className="mono text-[#d4deed]">{usd(mark({type:'put',strike:targetStrike},scenario).price*200)}</span>；保护成本会加深谷底。</p><button className="btn btn-primary w-full" onClick={protect} disabled={!!protection}>{protection?'保护腿已持有':'一键执行此对冲'}</button></div>
+                <div className="side-card"><div className="eyebrow mb-2">02 / ROLL DOWN</div><h3 className="text-sm font-semibold">卖方腿向下移仓</h3><p className="text-[11px] muted mt-2 mb-3">{rollLeg?`平仓 ${Math.abs(rollLeg.qty)} 张 $${rollLeg.strike} Put 空头，重新卖出 $${rollStrike} Put。保持同一到期日，可能产生净支出；平仓损益保留。`:'当前没有可向下移仓的 Put 空头。'}</p><button className="btn w-full" onClick={roll} disabled={!rollLeg||rollStrike===rollLeg.strike}>执行 Roll Down ↓</button></div>
+                <div className="side-card"><div className="eyebrow mb-2">03 / DELTA HEDGE</div><h3 className="text-sm font-semibold">正股 Delta 对冲</h3><p className="text-[11px] muted mt-2 mb-3">{hedgeShares===0?'Delta 已接近中性。':`${hedgeShares<0?'卖空':'买入'} ${Math.abs(hedgeShares)} 股，抵消当前 ${signed(greeks.delta)} 股 Delta。`}对冲后 Gamma 仍保留，后续价格变化需要重新评估。</p><button className="btn w-full" onClick={hedge} disabled={hedgeShares===0}>{hedgeShares===0?'已达到 Delta 中性':`执行${hedgeShares<0?'卖空':'买入'} ${Math.abs(hedgeShares)} 股`}</button></div>
+              </div>
+            </div></section>
+            <section className="guide p-5"><div className="eyebrow text-[#93ba7e] mb-2">STRATEGY PRESETS</div><h2 className="font-semibold text-sm">从比率价差，构建 W 双翼</h2><p className="text-[11px] muted leading-6 my-3">+1 P135 −2 P125 +2 P115 形成左侧保护谷；再加入 +1 C135，才能形成完整 W。双谷 $115 / $135，中心尖峰 $125。</p><div className="flex gap-2"><button className="btn btn-ghost flex-1" onClick={()=>preset('ratio')}>默认比率价差</button><button className="btn btn-primary flex-1" onClick={()=>preset('w')}>W 型示例 ↗</button></div><p className="text-[10px] muted mt-3">预设会新建仓位、重置盈亏。W 示例采用 1 天 / IV 25%，展示约 $141 双谷亏损和 $859 中央盈利；可撤销。</p></section>
+            <section className="panel"><div className="panel-head"><h2 className="font-semibold text-sm">Black–Scholes 计算器</h2><span className="eyebrow">EUROPEAN</span></div><div className="p-4"><div className="grid grid-cols-3 gap-2 mb-4"><label className="text-[10px] muted">类型<select aria-label="计算器类型" className="mt-1" value={calc.type} onChange={e=>setCalc(c=>({...c,type:e.target.value}))}><option value="put">PUT</option><option value="call">CALL</option></select></label><label className="text-[10px] muted">行权价 $<div className="mt-1"><NumberField label="计算器行权价" value={calc.strike} min={1} max={10000} onCommit={v=>setCalc(c=>({...c,strike:v}))}/></div></label><label className="text-[10px] muted">年化利率 %<div className="mt-1"><NumberField label="无风险利率" value={scenario.r} min={-5} max={30} onCommit={v=>updateScenario('r',v)}/></div></label></div><div className="flex justify-between items-center mb-3"><span className="text-xs muted">理论期权价格</span><span data-testid="calc-price" className="mono text-xl positive">{usd(single.price,4)}</span></div><div className="grid grid-cols-2 gap-3 text-xs">{[['Delta',single.delta],['Gamma',single.gamma],['Theta / 天',single.theta],['Vega / 1% IV',single.vega]].map(([label,value])=><div key={label} className="flex justify-between border-t border-[#25303e] pt-2"><span className="muted">{label}</span><span className="mono">{fmt(value,4)}</span></div>)}</div><p className="text-[10px] muted mt-3">同步沙盘 S / IV / T / r。价格与 Greeks 均按每股计；组合统计已乘以 100。</p></div></section>
+          </aside>
+        </div>
+        <section className="panel mt-5"><details><summary className="px-5 py-4 text-xs"><span className="font-semibold">模拟交易记录</span><span className="mono muted ml-3">{book.log.length} EVENTS</span></summary><div className="ledger divider">{book.log.length?book.log.map(item=><div key={item.id} className="flex flex-wrap justify-between gap-2 px-5 py-3 border-b border-[#202c3c] text-[11px]"><span>{item.message}</span><span className="mono muted">S ${fmt(item.s)} · IV {item.iv}% · {item.days}D</span></div>):<div className="px-5 py-4 text-xs muted">暂无交易。滑块变化不记作成交。</div>}</div></details></section>
+        <footer className="mt-6 flex flex-wrap justify-between gap-2 text-[10px] muted"><span className="mono">THETATREE / OPTIONS RESEARCH TERMINAL</span><span>理论情景模拟 · 无实时行情 · 所有操作仅修改本地模拟仓位</span></footer>
+        {toast&&<div className="toast text-xs" role="status">{toast}</div>}
+      </div>;
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
