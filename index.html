@@ -88,10 +88,10 @@
       leg.entry=mark(leg,scenario).price;
       return leg;
     }
-    function createBook(scenario=DEFAULT_SCENARIO, mode='ratio') {
-      const legs=[makeLeg('put',135,1,scenario,'base'),makeLeg('put',125,-2,scenario,'short')];
-      if(mode!=='ratio') legs.push(makeLeg('put',115,2,scenario,'protection'));
-      if(mode==='w') legs.push(makeLeg('call',135,1,scenario,'wing'));
+    function createBook(scenario=DEFAULT_SCENARIO, mode='ratio', strikes={long:135,short:125,protection:115}) {
+      const legs=[makeLeg('put',strikes.long,1,scenario,'base'),makeLeg('put',strikes.short,-2,scenario,'short')];
+      if(mode!=='ratio') legs.push(makeLeg('put',strikes.protection,2,scenario,'protection'));
+      if(mode==='w') legs.push(makeLeg('call',strikes.long,1,scenario,'wing'));
       return {legs,realized:0,log:[],mode};
     }
     function pnl(book,scenario,spot=scenario.s,expiry=false) {
@@ -131,10 +131,51 @@
       const realized=book.realized+old.qty*multiplier(old)*(mark(old,scenario).price-old.entry);
       return {...book,realized,legs:book.legs.flatMap(l=>l.id===id?(replacement?[replacement]:[]):[l]),mode:'custom'};
     }
-    window.ThetaEngine={normalCDF,normalPDF,blackScholes,mark,pnl,portfolioGreeks,expiryAnalysis,createBook,makeLeg,replaceLeg,DEFAULT_SCENARIO};
+    const roundPrice=n=>Math.round(n*100)/100;
+    const BUILTIN_ASSETS=[
+      {symbol:'SPCX',name:'SpaceX',s:135,iv:65,gap:10,min:90,max:170},
+      {symbol:'TQQQ',name:'TQQQ',s:60,iv:65,gap:5,min:35,max:85}
+    ];
+    const assetScenario=asset=>({s:asset.s,iv:asset.iv,days:30,r:4});
+    const assetStrikes=asset=>({long:asset.s,short:roundPrice(asset.s-asset.gap),protection:roundPrice(asset.s-2*asset.gap)});
+    function createWorkspace(asset){const scenario=assetScenario(asset);return {scenario,book:createBook(scenario,'ratio',assetStrikes(asset)),calc:{type:'put',strike:asset.s},history:[]};}
+    const STORAGE_KEY='thetatree.multi-asset.v1';
+    function defaultStore(){return {version:1,active:'SPCX',assets:BUILTIN_ASSETS.map(config=>({config:{...config},workspace:createWorkspace(config)}))};}
+    const inRange=(v,a,b)=>Number.isFinite(v)&&v>=a&&v<=b;
+    function validateAsset(asset){
+      return asset&&/^[A-Z0-9][A-Z0-9._-]{0,19}$/.test(asset.symbol)&&typeof asset.name==='string'&&asset.name.trim().length>0&&asset.name.length<=60&&
+        inRange(asset.s,1,10000)&&inRange(asset.iv,15,100)&&inRange(asset.gap,.01,(asset.s-.01)/2)&&
+        inRange(asset.min,.01,asset.s)&&inRange(asset.max,asset.s,20000)&&asset.min<asset.max;
+    }
+    // Restore only validated data. Undo stacks are session-local; books and logs persist.
+    function decodeStore(raw){
+      const data=JSON.parse(raw);
+      if(data?.version!==1||!Array.isArray(data.assets)||!data.assets.length||data.assets.length>50)throw new Error('Invalid saved catalog');
+      const symbols=new Set();let maxId=nextId;
+      for(const item of data.assets){
+        const a=item.config,w=item.workspace,s=w?.scenario,b=w?.book,c=w?.calc;
+        if(!validateAsset(a)||symbols.has(a.symbol))throw new Error('Invalid or duplicate symbol');
+        symbols.add(a.symbol);
+        if(!s||!inRange(s.s,a.min,a.max)||!inRange(s.iv,15,100)||!inRange(s.days,1,60)||!Number.isInteger(s.days)||!inRange(s.r,-5,30))throw new Error('Invalid saved scenario');
+        if(!b||!Number.isFinite(b.realized)||!Array.isArray(b.legs)||!Array.isArray(b.log)||b.log.length>60)throw new Error('Invalid saved book');
+        const ids=new Set();
+        for(const l of b.legs){
+          if(!['put','call','stock'].includes(l.type)||!Number.isSafeInteger(l.id)||l.id<1||l.id>=Number.MAX_SAFE_INTEGER||ids.has(l.id)||!Number.isSafeInteger(l.qty)||l.qty===0||!inRange(l.entry,0,100000)||!inRange(l.strike,l.type==='stock'?0:.01,10000)||typeof l.tag!=='string')throw new Error('Invalid saved leg');
+          ids.add(l.id);maxId=Math.max(maxId,l.id);
+        }
+        if(!b.log.every(l=>typeof l.message==='string'&&l.message.length<=1000&&Number.isFinite(l.id)&&Number.isFinite(l.s)&&Number.isFinite(l.iv)&&Number.isFinite(l.days)))throw new Error('Invalid saved log');
+        if(!c||!['put','call'].includes(c.type)||!inRange(c.strike,.01,10000))throw new Error('Invalid saved calculator');
+        w.history=[];
+      }
+      if(!symbols.has('SPCX')||!symbols.has('TQQQ'))throw new Error('Missing built-in assets');
+      if(!symbols.has(data.active))data.active='SPCX';
+      nextId=maxId;return data;
+    }
+    function encodeStore(data){return JSON.stringify({version:1,active:data.active,assets:data.assets.map(({config,workspace})=>({config,workspace:{scenario:workspace.scenario,book:workspace.book,calc:workspace.calc}}))});}
+    window.ThetaEngine={normalCDF,normalPDF,blackScholes,mark,pnl,portfolioGreeks,expiryAnalysis,createBook,makeLeg,replaceLeg,DEFAULT_SCENARIO,assetScenario,assetStrikes,createWorkspace,defaultStore,decodeStore,encodeStore,validateAsset};
   </script>
   <script type="text/babel" data-presets="react">
-    const {useState,useMemo,useRef,useEffect,useLayoutEffect}=React;
+    const {useState,useMemo,useRef,useEffect,useCallback}=React;
     const fmt=(n,d=2)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):n<0?'−∞':'+∞';
     const usd=(n,d=2)=>(n< -0.000001?'−':'')+'$'+fmt(Math.abs(n),d);
     const signed=(n,d=2)=>(n>0?'+':'')+fmt(n,d);
@@ -163,20 +204,21 @@
       ctx.save();ctx.beginPath();ctx.rect(a.left,a.top,a.right-a.left,a.bottom-a.top);ctx.clip();
       for(const k of opts.strikes||[]){const px=x.getPixelForValue(k);ctx.strokeStyle='#94a3b820';ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();}
       const sx=x.getPixelForValue(opts.spot);ctx.strokeStyle='#e6edf58a';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(sx,a.top);ctx.lineTo(sx,a.bottom);ctx.stroke();ctx.setLineDash([]);
-      ctx.font='10px Consolas, monospace';ctx.fillStyle='#c5d0df';ctx.fillText('S $'+fmt(opts.spot,1),Math.min(Math.max(sx+7,a.left+4),a.right-70),a.top+15);
+      ctx.font='10px Consolas, monospace';ctx.fillStyle='#c5d0df';ctx.fillText('S $'+fmt(opts.spot,2),Math.min(Math.max(sx+7,a.left+4),a.right-70),a.top+15);
       for(const root of opts.roots||[]){const px=x.getPixelForValue(root),py=y.getPixelForValue(0);ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fillStyle='#a7f36b';ctx.fill();}
       ctx.restore();
     }};
-    function PayoffChart({book,scenario,analysis}){
+    function PayoffChart({book,scenario,analysis,asset}){
       const canvas=useRef(null),chart=useRef(null),[latency,setLatency]=useState(0);
       useEffect(()=>{
-        chart.current=new Chart(canvas.current,{type:'line',data:{datasets:[]},plugins:[chartOverlay],options:{responsive:true,maintainAspectRatio:false,animation:false,parsing:false,normalized:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#172330',borderColor:'#3c4d61',borderWidth:1,padding:12,titleColor:'#fff',bodyColor:'#d5dfeb',displayColors:true,filter:c=>c.datasetIndex<2,callbacks:{title:items=>items.length?'标的价格 '+usd(items[0].parsed.x):'',label:c=>c.dataset.label+'  '+usd(c.parsed.y)}}},scales:{x:{type:'linear',min:90,max:170,grid:{color:'#23304366'},border:{display:false},ticks:{color:'#8390a5',font:{family:'Consolas',size:10},maxTicksLimit:9,callback:v=>'$'+v}},y:{grid:{color:c=>c.tick.value===0?'#71809688':'#23304366'},border:{display:false},ticks:{color:'#8390a5',font:{family:'Consolas',size:10},maxTicksLimit:7,callback:v=>'$'+fmt(v,0)}}}}});
+        chart.current=new Chart(canvas.current,{type:'line',data:{datasets:[]},plugins:[chartOverlay],options:{responsive:true,maintainAspectRatio:false,animation:false,parsing:false,normalized:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#172330',borderColor:'#3c4d61',borderWidth:1,padding:12,titleColor:'#fff',bodyColor:'#d5dfeb',displayColors:true,filter:c=>c.datasetIndex<2,callbacks:{title:items=>items.length?'标的价格 '+usd(items[0].parsed.x):'',label:c=>c.dataset.label+'  '+usd(c.parsed.y)}}},scales:{x:{type:'linear',min:asset.min,max:asset.max,grid:{color:'#23304366'},border:{display:false},ticks:{color:'#8390a5',font:{family:'Consolas',size:10},maxTicksLimit:9,callback:v=>'$'+v}},y:{grid:{color:c=>c.tick.value===0?'#71809688':'#23304366'},border:{display:false},ticks:{color:'#8390a5',font:{family:'Consolas',size:10},maxTicksLimit:7,callback:v=>'$'+fmt(v,0)}}}}});
         return()=>chart.current?.destroy();
       },[]);
       useEffect(()=>{
         if(!chart.current)return;
         const start=performance.now(), strikes=book.legs.filter(l=>l.type!=='stock').map(l=>l.strike);
-        const min=Math.max(0,Math.min(90,...strikes.map(k=>k-15))),max=Math.max(170,...strikes.map(k=>k+15));
+        const padding=asset.gap*1.5;
+        const min=Math.max(0,Math.min(asset.min,scenario.s,...strikes.map(k=>k-padding))),max=Math.max(asset.max,scenario.s,...strikes.map(k=>k+padding));
         // Include every exact strike and root: expiry corners are never rounded off.
         const xs=[...new Set([...Array.from({length:401},(_,i)=>min+(max-min)*i/400),...strikes,scenario.s,...analysis.roots.filter(x=>x>=min&&x<=max)])].sort((a,b)=>a-b);
         const expiration=xs.map(x=>({x,y:pnl(book,scenario,x,true)})),today=xs.map(x=>({x,y:pnl(book,scenario,x)}));
@@ -184,24 +226,26 @@
         c.options.plugins.scenarioOverlay={spot:scenario.s,strikes,roots:analysis.roots};
         c.data.datasets=[{label:'到期损益',data:expiration,borderColor:'#a7f36b',borderWidth:2,pointRadius:0,pointHitRadius:8,tension:0,fill:{target:{value:0},above:'#a7f36b0b',below:'#ff73880c'}},{label:'当日动态损益',data:today,borderColor:'#55c9ee',borderWidth:2,pointRadius:0,borderDash:[5,4],tension:0},{label:'当前情景',data:[{x:scenario.s,y:pnl(book,scenario)}],borderColor:'#090d14',backgroundColor:'#55c9ee',pointRadius:5,pointHoverRadius:6,pointBorderWidth:2,showLine:false}];
         c.update('none');setLatency(performance.now()-start);
-      },[book,scenario,analysis]);
+      },[book,scenario,analysis,asset]);
       return <><div className="chart-wrap"><canvas ref={canvas} id="payoff-chart" role="img" aria-label="到期损益与当日 Black–Scholes 动态损益曲线"/></div><div className="flex justify-between px-6 pb-4 pt-2 text-[10px] muted"><span>损益 / USD · 已计入权利金与已实现盈亏</span><span className="mono" data-testid="latency">{fmt(latency,1)} ms · {scenario.days}D</span></div></>;
     }
-    function App(){
-      const [scenario,setScenario]=useState({...DEFAULT_SCENARIO}),[book,setBook]=useState(()=>createBook()),[history,setHistory]=useState([]),[toast,setToast]=useState(''),[info,setInfo]=useState(false);
-      const [calc,setCalc]=useState({type:'put',strike:135});
+    function Terminal({asset,initial,onSave,toolbar}){
+      const [scenario,setScenario]=useState(initial.scenario),[book,setBook]=useState(initial.book),[history,setHistory]=useState(initial.history||[]),[toast,setToast]=useState(''),[info,setInfo]=useState(false);
+      const [calc,setCalc]=useState(initial.calc);
+      const strikes=useMemo(()=>assetStrikes(asset),[asset]);
+      useEffect(()=>{onSave(asset.symbol,{scenario,book,history,calc});},[asset.symbol,scenario,book,history,calc,onSave]);
       const greeks=useMemo(()=>portfolioGreeks(book,scenario),[book,scenario]);
       const analysis=useMemo(()=>expiryAnalysis(book,scenario),[book,scenario]);
       const current=pnl(book,scenario),atExpiry=pnl(book,scenario,scenario.s,true);
       const shortPuts=book.legs.filter(l=>l.type==='put'&&l.qty<0),trigger=shortPuts.length?Math.max(...shortPuts.map(l=>l.strike)):null;
       const breached=trigger!==null&&scenario.s<trigger;
       const protection=book.legs.find(l=>l.tag==='protection');
-      const targetStrike=Math.max(1,(trigger??125)-10);
+      const targetStrike=Math.max(.01,roundPrice((trigger??strikes.short)-asset.gap));
       const nakedLeft=book.legs.filter(l=>l.type==='put').reduce((n,l)=>n-l.qty*100,0)+book.legs.filter(l=>l.type==='stock').reduce((n,l)=>n+l.qty,0)>0;
       const single=blackScholes(calc.type,scenario.s,calc.strike,scenario.days/365,scenario.iv/100,scenario.r/100);
       const netBasis=book.legs.reduce((v,l)=>v+l.qty*multiplier(l)*l.entry,0);
       const hedgeShares=-Math.round(greeks.delta),rollLeg=shortPuts.slice().sort((a,b)=>b.strike-a.strike)[0];
-      const rollStrike=rollLeg?Math.max(1,rollLeg.strike-5):null;
+      const rollStrike=rollLeg?Math.max(.01,roundPrice(rollLeg.strike-Math.max(.01,roundPrice(asset.gap/2)))):null;
       const rootText=[...analysis.roots.map(x=>usd(x)),...analysis.intervals.map(([a,b])=>usd(a)+'–'+(b===Infinity?'∞':usd(b)))].join(' / ')||'无';
       useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(t);},[toast]);
       function updateScenario(key,value){setScenario(s=>({...s,[key]:value}));}
@@ -211,10 +255,10 @@
         setScenario({...newScenario});setToast(message);
       }
       function preset(mode){
-        // A short-dated, lower-IV educational example has a central PROFIT peak.
+        // A short-dated, lower-IV example; profitability also depends on strike spacing.
         // Loading it explicitly starts a new book; it is not a cost-free hedge.
-        const s=mode==='w'?{s:135,iv:25,days:1,r:4}:{...DEFAULT_SCENARIO};
-        transact(createBook(s,mode),mode==='w'?'已新建 W 型示例：S $135 / IV 25% / 1 天；历史盈亏重置':'已新建默认 1:−2 比率价差；历史盈亏重置',s);
+        const s=mode==='w'?{...assetScenario(asset),iv:25,days:1}:assetScenario(asset);
+        transact(createBook(s,mode,strikes),mode==='w'?`已新建 ${asset.symbol} W 型示例：S ${usd(asset.s)} / IV 25% / 1 天；历史盈亏重置`:`已新建 ${asset.symbol} 默认 1:−2 比率价差；历史盈亏重置`,s);
       }
       function toggleProtection(){
         if(protection){transact(replaceLeg(book,protection.id,null,scenario),'已按当前理论价平仓保护腿，损益计入已实现盈亏');}
@@ -224,7 +268,7 @@
       function completeW(){
         const additions=[];
         if(!protection)additions.push(makeLeg('put',targetStrike,2,scenario,'protection'));
-        if(!book.legs.some(l=>l.tag==='wing'))additions.push(makeLeg('call',135,1,scenario,'wing'));
+        if(!book.legs.some(l=>l.tag==='wing'))additions.push(makeLeg('call',strikes.long,1,scenario,'wing'));
         if(!additions.length){setToast('保护腿与右侧 Call 已存在；可在持仓中调整');return;}
         const cost=additions.reduce((s,l)=>s+l.entry*l.qty*100,0);
         transact({...book,legs:[...book.legs,...additions],mode:'custom'},`已叠加 W 保护腿 / 右侧 Call，新增成本 ${usd(cost)}；实际形状取决于当前持仓`);
@@ -245,22 +289,23 @@
           transact({...book,legs:book.legs.map(l=>l.id===leg.id?{...l,entry:value}:l)},'已修正入场成本基准（非交易）；历史盈亏随基准调整');return;
         }
         const changed={...leg,[field]:value};
-        if(field==='type'&&value!=='stock'&&changed.strike===0)changed.strike=135;
+        if(field==='type'&&value!=='stock'&&changed.strike===0)changed.strike=asset.s;
         changed.tag='custom';changed.entry=mark(changed,scenario).price;
         transact(replaceLeg(book,leg.id,changed,scenario),'已按当前理论价平旧开新；原腿损益已结算');
       }
       function undo(){const prev=history[history.length-1];if(!prev)return;setBook(prev.book);setScenario(prev.scenario);setHistory(h=>h.slice(0,-1));setToast('已撤销最近一次持仓操作，并恢复操作时的沙盘参数');}
-      const wReady=book.legs.length===4&&book.legs.some(l=>l.type==='put'&&l.strike===135&&l.qty===1)&&book.legs.some(l=>l.type==='put'&&l.strike===125&&l.qty===-2)&&book.legs.some(l=>l.type==='put'&&l.strike===115&&l.qty===2)&&book.legs.some(l=>l.type==='call'&&l.strike===135&&l.qty===1);
+      const wReady=book.legs.length===4&&book.legs.some(l=>l.type==='put'&&l.strike===strikes.long&&l.qty===1)&&book.legs.some(l=>l.type==='put'&&l.strike===strikes.short&&l.qty===-2)&&book.legs.some(l=>l.type==='put'&&l.strike===strikes.protection&&l.qty===2)&&book.legs.some(l=>l.type==='call'&&l.strike===strikes.long&&l.qty===1);
       return <div className="max-w-[1600px] mx-auto px-4 md:px-8 pb-6">
         <header className="flex items-center justify-between py-5 border-b border-[#25303e] gap-3">
           <div className="flex items-center gap-3"><div className="bg-[#a7f36b] text-[#15220d] rounded-lg p-2"><Icon name="tree" size={25}/></div><div className="text-xl font-semibold tracking-tight">ThetaTree <span className="text-[10px] mono muted ml-2 desktop-label">OPTIONS LAB</span></div><div className="h-5 border-l border-[#344051] mx-3 hidden md:block"/><span className="text-xs muted hidden md:block">策略研究终端</span></div>
           <div className="flex items-center gap-4"><span className="badge muted hidden sm:inline-flex"><span className="dot"/> 本地模拟 · 无实盘连接</span><button className="btn btn-ghost" onClick={()=>setInfo(!info)} aria-expanded={info}>模型说明 ↗</button></div>
         </header>
+        {toolbar}
         <section className="flex flex-wrap justify-between items-end gap-5 pt-7 pb-6">
           <div><div className="eyebrow mb-2">STRATEGY WORKSPACE / 01</div><h1 className="text-xl md:text-[27px] font-semibold tracking-tight">期权 1:−2 比率价差<span className="text-[#74839a] mx-2">/</span>W 型策略</h1><p className="text-xs muted mt-2">动态移仓与风险沙盘 <span className="mx-2">·</span> 调整市场情景，观察每一条腿如何改变收益。</p></div>
           <div data-testid="signal" data-state={breached?'red':'green'} role="status" className={'rounded-lg border px-4 py-3 flex gap-3 items-center '+(breached?'border-[#73404b] bg-[#321c25] negative':'border-[#344f30] bg-[#172519] positive')}><span className="dot"/><div><div className="text-xs font-semibold">{breached?'跌破卖方行权价 · 需要关注':'未触发卖方行权价预警'}</div><div className="text-[10px] opacity-70 mono mt-1">{trigger===null?'NO SHORT PUT':`S ${fmt(scenario.s)} ${breached?'<':'≥'} K ${fmt(trigger)}`} · {greeks.gamma<0?'SHORT GAMMA':'LONG GAMMA'}</div></div></div>
         </section>
-        {info&&<section className="panel p-5 mb-5 text-xs leading-6 muted"><h2 className="text-sm text-white mb-2">模型与记账口径</h2><p>SPCX / SpaceX 为用户指定的模拟标识，$135 为假设初始价格，不代表真实上市状态或行情。欧式 Black–Scholes 模型，统一到期日、统一 IV，股息率 q = 0，默认年化无风险利率 4%；每张期权 100 股，正股按股计算。不计手续费、滑点、保证金、借券费、资金利息及提前行权。</p><p>总损益 = 已实现盈亏 + Σ 数量 × 合约乘数 ×（当前价值 − 入场价）。滑块只改变估值情景，不改变入场成本；T 为假设剩余期限。到期线不受 S / IV / T 改变；S 改变光标，IV / T 改变当日曲线。移仓按当前理论价平旧开新；成本字段为手工修正历史基准。所有到期盈亏平衡点在 S ≥ 0 上精确分段求解。</p><p>Delta：等效持股数；Gamma：标的每涨 $1 的 Delta 变化；Theta：每自然日美元变化；Vega：IV 每增加 1 个百分点的美元变化。Roll Down 保持到期日，不模拟跨期展期。W 型两谷不保证微亏，期权成本和既有移仓损失决定曲线高度；左端盈利受 S ≥ 0 限制。</p><p className="mt-2">公式参考：<a href="https://martin-haugh.github.io/files/FoundationsFE/BlackScholes.pdf" target="_blank" rel="noreferrer">Martin Haugh · The Black–Scholes Model</a>；即时绘图：<a href="https://www.chartjs.org/docs/latest/developers/updates.html" target="_blank" rel="noreferrer">Chart.js 无动画更新</a>。</p></section>}
+        {info&&<section className="panel p-5 mb-5 text-xs leading-6 muted"><h2 className="text-sm text-white mb-2">模型与记账口径</h2><p>所有标的均使用用户配置的假设价格与 IV，不代表实时行情；SPCX / SpaceX 为模拟标识。每个标的独立记账，不计算跨标的组合风险。欧式 Black–Scholes 模型，统一到期日、统一 IV，股息率 q = 0，默认年化无风险利率 4%；每张期权 100 股，正股按股计算。不计手续费、滑点、保证金、借券费、资金利息及提前行权。</p><p>总损益 = 已实现盈亏 + Σ 数量 × 合约乘数 ×（当前价值 − 入场价）。滑块只改变估值情景，不改变入场成本；T 为假设剩余期限。到期线不受 S / IV / T 改变；S 改变光标，IV / T 改变当日曲线。移仓按当前理论价平旧开新；成本字段为手工修正历史基准。所有到期盈亏平衡点在 S ≥ 0 上精确分段求解。</p><p>Delta：等效持股数；Gamma：标的每涨 $1 的 Delta 变化；Theta：每自然日美元变化；Vega：IV 每增加 1 个百分点的美元变化。Roll Down 保持到期日，不模拟跨期展期。W 型两谷不保证微亏，期权成本和既有移仓损失决定曲线高度；左端盈利受 S ≥ 0 限制。</p><p className="mt-2">公式参考：<a href="https://martin-haugh.github.io/files/FoundationsFE/BlackScholes.pdf" target="_blank" rel="noreferrer">Martin Haugh · The Black–Scholes Model</a>；即时绘图：<a href="https://www.chartjs.org/docs/latest/developers/updates.html" target="_blank" rel="noreferrer">Chart.js 无动画更新</a>。</p></section>}
         <section className="panel grid grid-cols-2 lg:grid-cols-4 divide-x divide-[#25303e] mb-5">
           <div className="stat"><div className="eyebrow">SCENARIO P&L <span className="float-right">当日损益</span></div><div data-testid="pnl" className={'stat-value mono mt-3 '+tone(current)}>{usd(current)}</div><div className="metric-small mt-2">同价到期 <span className={'mono '+tone(atExpiry)}>{usd(atExpiry)}</span></div></div>
           <div className="stat"><div className="eyebrow">NET DELTA <span className="float-right">Δ</span></div><div data-testid="delta" className="stat-value mono mt-3">{signed(greeks.delta)}</div><div className="metric-small mt-2">等效持股 · <span className="mono">股</span></div></div>
@@ -271,17 +316,17 @@
           <main className="min-w-0 space-y-5">
             <section className="panel">
               <div className="panel-head"><div className="flex gap-2 items-center"><Icon name="chart"/><h2 className="font-semibold text-sm">收益结构</h2><span className="badge text-[#a7f36b]">{wReady?'W STRUCTURE':'RATIO / CUSTOM'}</span></div><div className="hidden sm:flex gap-4 text-[10px]"><span><span className="inline-block w-4 border-t-2 border-[#a7f36b] mr-2 align-middle"/>到期损益</span><span><span className="inline-block w-4 border-t-2 border-dashed border-[#55c9ee] mr-2 align-middle"/>当日动态</span></div></div>
-              <div className="px-5 pt-4 flex justify-between gap-3"><div><span className="font-semibold">SPCX</span><span className="muted text-xs ml-2">SpaceX · 模拟标的</span><span className="mono ml-3">{usd(scenario.s)}</span></div><span className="eyebrow pt-1">PAYOFF PROFILE</span></div>
+              <div className="px-5 pt-4 flex justify-between gap-3"><div><span className="font-semibold" data-testid="active-symbol">{asset.symbol}</span><span className="muted text-xs ml-2">{asset.name} · 模拟标的</span><span className="mono ml-3">{usd(scenario.s)}</span></div><span className="eyebrow pt-1">PAYOFF PROFILE</span></div>
               <div className="flex gap-4 text-[10px] sm:hidden px-5 pt-3"><span className="positive">— 到期损益</span><span className="text-[#55c9ee]">┄ 当日动态</span></div>
-              <PayoffChart book={book} scenario={scenario} analysis={analysis}/>
-              {wReady&&<div className="grid grid-cols-5 mx-5 mb-4 border border-[#293745] rounded-lg text-center text-[10px] muted"><div className="zone"><span className="positive">↖ 左翼拉升</span><div className="mono mt-1">S &lt; 115</div></div><div className="zone"><span className="negative">左谷 · 保护成本</span><div className="mono mt-1">{usd(pnl(book,scenario,115,true),0)}</div></div><div className="zone"><span className="positive">中心尖峰</span><div className="mono mt-1">{usd(pnl(book,scenario,125,true),0)}</div></div><div className="zone"><span className="negative">右谷 · 权利金</span><div className="mono mt-1">{usd(pnl(book,scenario,135,true),0)}</div></div><div className="zone"><span className="positive">右翼盈利 ↗</span><div className="mono mt-1">S &gt; 135</div></div></div>}
+              <PayoffChart book={book} scenario={scenario} analysis={analysis} asset={asset}/>
+              {wReady&&<div className="grid grid-cols-5 mx-5 mb-4 border border-[#293745] rounded-lg text-center text-[10px] muted"><div className="zone"><span className="positive">↖ 左翼拉升</span><div className="mono mt-1">S &lt; {strikes.protection}</div></div><div className="zone"><span className="negative">左谷 · 保护成本</span><div className="mono mt-1">{usd(pnl(book,scenario,strikes.protection,true),0)}</div></div><div className="zone"><span className="positive">中心尖峰</span><div className="mono mt-1">{usd(pnl(book,scenario,strikes.short,true),0)}</div></div><div className="zone"><span className="negative">右谷 · 权利金</span><div className="mono mt-1">{usd(pnl(book,scenario,strikes.long,true),0)}</div></div><div className="zone"><span className="positive">右翼盈利 ↗</span><div className="mono mt-1">S &gt; {strikes.long}</div></div></div>}
               <div className="divider grid grid-cols-1 sm:grid-cols-3 text-xs"><div className="px-5 py-3"><div className="muted text-[10px]">到期盈亏平衡点 · 全域</div><div data-testid="breakeven" className="mono mt-1 break-words text-[#cdd9e9]">{rootText}</div></div><div className="px-5 py-3"><div className="muted text-[10px]">到期最大盈利 · S ≥ 0</div><div className={'mono mt-1 '+tone(analysis.max)}>{analysis.max===Infinity?'无限上行':usd(analysis.max)}</div></div><div className="px-5 py-3"><div className="muted text-[10px]">到期最大亏损 · S ≥ 0</div><div className="mono mt-1 negative">{analysis.min===-Infinity?'无限亏损':usd(Math.max(0,-analysis.min))}</div></div></div>
             </section>
-            <section className="panel p-5"><div className="flex items-center justify-between mb-4"><h2 className="font-semibold text-sm flex gap-2 items-center"><Icon name="bolt"/>实时情景沙盘</h2><button className="text-[10px] muted hover:text-white" onClick={()=>setScenario({...DEFAULT_SCENARIO})}>重置参数 ↺</button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><Slider id="spot-slider" label="标的现价" symbol="S" value={scenario.s} min={90} max={170} step={0.1} format={v=>'$'+fmt(v,1)} onChange={v=>updateScenario('s',v)}/><Slider id="iv-slider" label="隐含波动率" symbol="IV" value={scenario.iv} min={15} max={100} step={1} format={v=>v+'%'} onChange={v=>updateScenario('iv',v)}/><Slider id="days-slider" label="剩余天数" symbol="T" value={scenario.days} min={1} max={60} step={1} format={v=>v+' 天'} onChange={v=>updateScenario('days',v)}/></div><p className="text-[10px] muted mt-3">固定入场成本 · 参数变化即时重估；到期折线保持不变，现价定位线与动态曲线同步更新。</p></section>
+            <section className="panel p-5"><div className="flex items-center justify-between mb-4"><h2 className="font-semibold text-sm flex gap-2 items-center"><Icon name="bolt"/>实时情景沙盘</h2><button className="text-[10px] muted hover:text-white" onClick={()=>setScenario(assetScenario(asset))}>重置参数 ↺</button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><Slider id="spot-slider" label="标的现价" symbol="S" value={scenario.s} min={asset.min} max={asset.max} step={0.01} format={v=>'$'+fmt(v,2)} onChange={v=>updateScenario('s',v)}/><Slider id="iv-slider" label="隐含波动率" symbol="IV" value={scenario.iv} min={15} max={100} step={1} format={v=>v+'%'} onChange={v=>updateScenario('iv',v)}/><Slider id="days-slider" label="剩余天数" symbol="T" value={scenario.days} min={1} max={60} step={1} format={v=>v+' 天'} onChange={v=>updateScenario('days',v)}/></div><p className="text-[10px] muted mt-3">固定入场成本 · 参数变化即时重估；到期折线保持不变，现价定位线与动态曲线同步更新。</p></section>
             <section className="panel overflow-hidden">
-              <div className="panel-head flex-wrap"><div><h2 className="font-semibold text-sm">持仓构建器 <span className="mono text-xs muted ml-2">{book.legs.length} LEGS</span></h2></div><div className="flex gap-2 flex-wrap"><button className="btn btn-ghost" onClick={undo} disabled={!history.length}>撤销</button><button className="btn" onClick={()=>transact({...book,legs:[...book.legs,makeLeg('put',Math.round(scenario.s/5)*5,1,scenario)],mode:'custom'},'已按当前理论价新增 1 张 Put')}>＋ 添加腿</button></div></div>
+              <div className="panel-head flex-wrap"><div><h2 className="font-semibold text-sm">持仓构建器 <span className="mono text-xs muted ml-2">{book.legs.length} LEGS</span></h2></div><div className="flex gap-2 flex-wrap"><button className="btn btn-ghost" onClick={undo} disabled={!history.length}>撤销</button><button className="btn" onClick={()=>transact({...book,legs:[...book.legs,makeLeg('put',Math.min(10000,Math.max(.01,roundPrice(scenario.s))),1,scenario)],mode:'custom'},'已按当前理论价新增 1 张 Put')}>＋ 添加腿</button></div></div>
               <div className="px-5 py-3 flex flex-wrap gap-2"><button className={'btn '+(!protection?'btn-ghost':'border-[#628949] text-[#a7f36b]')} onClick={toggleProtection} aria-pressed={!!protection}>{protection?'✓ 平仓保护腿':`＋ 2× $${targetStrike} Put 保护`}</button><button className="btn btn-ghost" onClick={completeW}>叠加 W 左右翼</button></div>
-              <div className="overflow-x-auto"><table className="trade-table"><thead><tr><th>方向 / 数量</th><th>合约类型</th><th>行权价 $</th><th>入场价 $ / 股</th><th>理论价 $ / 股</th><th>Delta · 股</th><th>浮动损益 $</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{book.legs.map((leg,i)=>{const m=mark(leg,scenario);return <tr key={leg.id}><td><div className="flex items-center gap-2"><span className={'text-[9px] w-7 '+(leg.qty>0?'positive':'negative')}>{leg.qty>0?'BUY':'SELL'}</span><NumberField label={`第${i+1}腿数量`} value={leg.qty} min={-10000} max={10000} step={1} nonzero onCommit={v=>editLeg(leg,'qty',v)}/></div></td><td><select aria-label={`第${i+1}腿类型`} value={leg.type} onChange={e=>editLeg(leg,'type',e.target.value)}><option value="put">PUT</option><option value="call">CALL</option><option value="stock">正股</option></select></td><td>{leg.type==='stock'?<span className="muted">—</span>:<NumberField label={`第${i+1}腿行权价`} min={1} max={10000} value={leg.strike} onCommit={v=>editLeg(leg,'strike',v)}/>}</td><td><NumberField label={`第${i+1}腿入场价`} min={0} max={100000} value={Number(leg.entry.toFixed(6))} onCommit={v=>editLeg(leg,'entry',v)}/></td><td className="mono">{fmt(m.price,4)}</td><td className="mono">{signed(m.delta*leg.qty*multiplier(leg))}</td><td className={'mono '+tone((m.price-leg.entry)*leg.qty)}>{signed((m.price-leg.entry)*leg.qty*multiplier(leg))}</td><td><button className="muted hover:text-[#ff7388]" aria-label={`平仓第${i+1}腿`} onClick={()=>transact(replaceLeg(book,leg.id,null,scenario),'已平仓该腿，浮动损益转入已实现盈亏')}><Icon name="close" size={14}/></button></td></tr>;})}{!book.legs.length&&<tr><td colSpan="8" className="text-center muted">当前为空仓。添加腿或载入预设以继续模拟。</td></tr>}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="trade-table"><thead><tr><th>方向 / 数量</th><th>合约类型</th><th>行权价 $</th><th>入场价 $ / 股</th><th>理论价 $ / 股</th><th>Delta · 股</th><th>浮动损益 $</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{book.legs.map((leg,i)=>{const m=mark(leg,scenario);return <tr key={leg.id}><td><div className="flex items-center gap-2"><span className={'text-[9px] w-7 '+(leg.qty>0?'positive':'negative')}>{leg.qty>0?'BUY':'SELL'}</span><NumberField label={`第${i+1}腿数量`} value={leg.qty} min={leg.type==='stock'?-Number.MAX_SAFE_INTEGER:-10000} max={leg.type==='stock'?Number.MAX_SAFE_INTEGER:10000} step={1} nonzero onCommit={v=>editLeg(leg,'qty',v)}/></div></td><td><select aria-label={`第${i+1}腿类型`} value={leg.type} onChange={e=>editLeg(leg,'type',e.target.value)}><option value="put">PUT</option><option value="call">CALL</option><option value="stock">正股</option></select></td><td>{leg.type==='stock'?<span className="muted">—</span>:<NumberField label={`第${i+1}腿行权价`} min={0.01} max={10000} value={leg.strike} onCommit={v=>editLeg(leg,'strike',v)}/>}</td><td><NumberField label={`第${i+1}腿入场价`} min={0} max={100000} value={Number(leg.entry.toFixed(6))} onCommit={v=>editLeg(leg,'entry',v)}/></td><td className="mono">{fmt(m.price,4)}</td><td className="mono">{signed(m.delta*leg.qty*multiplier(leg))}</td><td className={'mono '+tone((m.price-leg.entry)*leg.qty)}>{signed((m.price-leg.entry)*leg.qty*multiplier(leg))}</td><td><button className="muted hover:text-[#ff7388]" aria-label={`平仓第${i+1}腿`} onClick={()=>transact(replaceLeg(book,leg.id,null,scenario),'已平仓该腿，浮动损益转入已实现盈亏')}><Icon name="close" size={14}/></button></td></tr>;})}{!book.legs.length&&<tr><td colSpan="8" className="text-center muted">当前为空仓。添加腿或载入预设以继续模拟。</td></tr>}</tbody></table></div>
               <div className="px-5 py-3 divider flex justify-between flex-wrap gap-3 text-[11px]"><span className="muted">持仓净{netBasis>=0?'支出':'收入'} <span className="mono text-white ml-2">{usd(Math.abs(netBasis))}</span></span><span className="muted">已实现盈亏 <span data-testid="realized" className={'mono ml-2 '+tone(book.realized)}>{usd(book.realized)}</span></span></div><p className="px-5 pb-4 text-[10px] muted">数量：正数买入、负数卖出；期权按张、正股按股。修改类型 / 数量 / 行权价会平旧开新；入场价可手工修正。输入后按 Enter 或移开焦点生效。</p>
             </section>
           </main>
@@ -294,14 +339,63 @@
                 <div className="side-card"><div className="eyebrow mb-2">03 / DELTA HEDGE</div><h3 className="text-sm font-semibold">正股 Delta 对冲</h3><p className="text-[11px] muted mt-2 mb-3">{hedgeShares===0?'Delta 已接近中性。':`${hedgeShares<0?'卖空':'买入'} ${Math.abs(hedgeShares)} 股，抵消当前 ${signed(greeks.delta)} 股 Delta。`}对冲后 Gamma 仍保留，后续价格变化需要重新评估。</p><button className="btn w-full" onClick={hedge} disabled={hedgeShares===0}>{hedgeShares===0?'已达到 Delta 中性':`执行${hedgeShares<0?'卖空':'买入'} ${Math.abs(hedgeShares)} 股`}</button></div>
               </div>
             </div></section>
-            <section className="guide p-5"><div className="eyebrow text-[#93ba7e] mb-2">STRATEGY PRESETS</div><h2 className="font-semibold text-sm">从比率价差，构建 W 双翼</h2><p className="text-[11px] muted leading-6 my-3">+1 P135 −2 P125 +2 P115 形成左侧保护谷；再加入 +1 C135，才能形成完整 W。双谷 $115 / $135，中心尖峰 $125。</p><div className="flex gap-2"><button className="btn btn-ghost flex-1" onClick={()=>preset('ratio')}>默认比率价差</button><button className="btn btn-primary flex-1" onClick={()=>preset('w')}>W 型示例 ↗</button></div><p className="text-[10px] muted mt-3">预设会新建仓位、重置盈亏。W 示例采用 1 天 / IV 25%，展示约 $141 双谷亏损和 $859 中央盈利；可撤销。</p></section>
-            <section className="panel"><div className="panel-head"><h2 className="font-semibold text-sm">Black–Scholes 计算器</h2><span className="eyebrow">EUROPEAN</span></div><div className="p-4"><div className="grid grid-cols-3 gap-2 mb-4"><label className="text-[10px] muted">类型<select aria-label="计算器类型" className="mt-1" value={calc.type} onChange={e=>setCalc(c=>({...c,type:e.target.value}))}><option value="put">PUT</option><option value="call">CALL</option></select></label><label className="text-[10px] muted">行权价 $<div className="mt-1"><NumberField label="计算器行权价" value={calc.strike} min={1} max={10000} onCommit={v=>setCalc(c=>({...c,strike:v}))}/></div></label><label className="text-[10px] muted">年化利率 %<div className="mt-1"><NumberField label="无风险利率" value={scenario.r} min={-5} max={30} onCommit={v=>updateScenario('r',v)}/></div></label></div><div className="flex justify-between items-center mb-3"><span className="text-xs muted">理论期权价格</span><span data-testid="calc-price" className="mono text-xl positive">{usd(single.price,4)}</span></div><div className="grid grid-cols-2 gap-3 text-xs">{[['Delta',single.delta],['Gamma',single.gamma],['Theta / 天',single.theta],['Vega / 1% IV',single.vega]].map(([label,value])=><div key={label} className="flex justify-between border-t border-[#25303e] pt-2"><span className="muted">{label}</span><span className="mono">{fmt(value,4)}</span></div>)}</div><p className="text-[10px] muted mt-3">同步沙盘 S / IV / T / r。价格与 Greeks 均按每股计；组合统计已乘以 100。</p></div></section>
+            <section className="guide p-5"><div className="eyebrow text-[#93ba7e] mb-2">STRATEGY PRESETS</div><h2 className="font-semibold text-sm">从比率价差，构建 W 双翼</h2><p className="text-[11px] muted leading-6 my-3">{asset.symbol}：+1 P{strikes.long} −2 P{strikes.short} +2 P{strikes.protection} 形成左侧保护谷；再加入 +1 C{strikes.long}，构建完整 W。双谷 ${strikes.protection} / ${strikes.long}，中心尖峰 ${strikes.short}。</p><div className="flex gap-2"><button className="btn btn-ghost flex-1" onClick={()=>preset('ratio')}>默认比率价差</button><button className="btn btn-primary flex-1" onClick={()=>preset('w')}>W 型示例 ↗</button></div><p className="text-[10px] muted mt-3">预设仅重建当前标的仓位、重置其盈亏。W 示例采用 1 天 / IV 25%；实际盈亏随价格和行权价间距变化，可撤销。</p></section>
+            <section className="panel"><div className="panel-head"><h2 className="font-semibold text-sm">Black–Scholes 计算器</h2><span className="eyebrow">EUROPEAN</span></div><div className="p-4"><div className="grid grid-cols-3 gap-2 mb-4"><label className="text-[10px] muted">类型<select aria-label="计算器类型" className="mt-1" value={calc.type} onChange={e=>setCalc(c=>({...c,type:e.target.value}))}><option value="put">PUT</option><option value="call">CALL</option></select></label><label className="text-[10px] muted">行权价 $<div className="mt-1"><NumberField label="计算器行权价" value={calc.strike} min={0.01} max={10000} onCommit={v=>setCalc(c=>({...c,strike:v}))}/></div></label><label className="text-[10px] muted">年化利率 %<div className="mt-1"><NumberField label="无风险利率" value={scenario.r} min={-5} max={30} onCommit={v=>updateScenario('r',v)}/></div></label></div><div className="flex justify-between items-center mb-3"><span className="text-xs muted">理论期权价格</span><span data-testid="calc-price" className="mono text-xl positive">{usd(single.price,4)}</span></div><div className="grid grid-cols-2 gap-3 text-xs">{[['Delta',single.delta],['Gamma',single.gamma],['Theta / 天',single.theta],['Vega / 1% IV',single.vega]].map(([label,value])=><div key={label} className="flex justify-between border-t border-[#25303e] pt-2"><span className="muted">{label}</span><span className="mono">{fmt(value,4)}</span></div>)}</div><p className="text-[10px] muted mt-3">同步沙盘 S / IV / T / r。价格与 Greeks 均按每股计；组合统计已乘以 100。</p></div></section>
           </aside>
         </div>
         <section className="panel mt-5"><details><summary className="px-5 py-4 text-xs"><span className="font-semibold">模拟交易记录</span><span className="mono muted ml-3">{book.log.length} EVENTS</span></summary><div className="ledger divider">{book.log.length?book.log.map(item=><div key={item.id} className="flex flex-wrap justify-between gap-2 px-5 py-3 border-b border-[#202c3c] text-[11px]"><span>{item.message}</span><span className="mono muted">S ${fmt(item.s)} · IV {item.iv}% · {item.days}D</span></div>):<div className="px-5 py-4 text-xs muted">暂无交易。滑块变化不记作成交。</div>}</div></details></section>
         <footer className="mt-6 flex flex-wrap justify-between gap-2 text-[10px] muted"><span className="mono">THETATREE / OPTIONS RESEARCH TERMINAL</span><span>理论情景模拟 · 无实时行情 · 所有操作仅修改本地模拟仓位</span></footer>
         {toast&&<div className="toast text-xs" role="status">{toast}</div>}
       </div>;
+    }
+    function App(){
+      const [loaded]=useState(()=>{
+        try{const raw=window.localStorage.getItem(STORAGE_KEY);return {store:raw?decodeStore(raw):defaultStore(),notice:''};}
+        catch{return {store:defaultStore(),notice:'无法读取本机保存的数据，已载入默认标的。请检查浏览器存储权限或保存的数据。'};}
+      });
+      const [store,setStore]=useState(loaded.store),[showForm,setShowForm]=useState(false),[error,setError]=useState(''),[storageError,setStorageError]=useState('');
+      const [draft,setDraft]=useState({symbol:'',name:'',s:'100',iv:'65',gap:'5'});
+      const symbolInput=useRef(null);
+      useEffect(()=>{if(showForm)symbolInput.current?.focus?.();},[showForm]);
+      useEffect(()=>{
+        try{window.localStorage.setItem(STORAGE_KEY,encodeStore(store));setStorageError('');}
+        catch{setStorageError('本机保存不可用或空间不足。当前仍可模拟，但本次修改可能无法在刷新后恢复。');}
+      },[store]);
+      const saveWorkspace=useCallback((symbol,workspace)=>{
+        setStore(prev=>({...prev,assets:prev.assets.map(item=>item.config.symbol===symbol?{...item,workspace}:item)}));
+      },[]);
+      const active=store.assets.find(item=>item.config.symbol===store.active);
+      function addAsset(event){
+        event.preventDefault();
+        const symbol=draft.symbol.trim().toUpperCase(),s=Number(draft.s),gap=Number(draft.gap),iv=Number(draft.iv);
+        const config={symbol,name:draft.name.trim()||symbol,s,iv,gap,min:Math.max(.01,roundPrice(s*.65)),max:roundPrice(s*1.35)};
+        if(!validateAsset(config)||[draft.s,draft.gap,draft.iv].some(v=>!v.trim())||Math.abs(roundPrice(s)-s)>1e-8||Math.abs(roundPrice(gap)-gap)>1e-8){setError('代码需为 1–20 位字母、数字、点、横线或下划线，且以字母或数字开头；价格 $1–$10,000，IV 15%–100%，间距至少 $0.01 且小于价格的一半。价格与间距最多两位小数。');return;}
+        if(store.assets.some(item=>item.config.symbol===symbol)){setError(`标的 ${symbol} 已存在，请直接切换。`);return;}
+        if(store.assets.length>=50){setError('最多保存 50 个标的。');return;}
+        setStore(prev=>({...prev,active:symbol,assets:[...prev.assets,{config,workspace:createWorkspace(config)}]}));
+        setShowForm(false);setError('');setDraft({symbol:'',name:'',s:'100',iv:'65',gap:'5'});
+      }
+      const toolbar=<section className="panel mt-5 p-4" aria-label="标的管理">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3"><label htmlFor="asset-select" className="text-xs muted">当前标的</label><select id="asset-select" aria-label="切换标的" className="!w-auto min-w-[180px] max-w-full" value={store.active} onChange={e=>{setStore(prev=>({...prev,active:e.target.value}));setError('');}}>{store.assets.map(({config})=><option key={config.symbol} value={config.symbol}>{config.symbol} · {config.name}</option>)}</select><button className="btn btn-primary" onClick={()=>{setShowForm(!showForm);setError('');}} aria-expanded={showForm}>{showForm?'收起新增表单':'＋ 新增标的'}</button></div>
+          <div className="text-[10px] muted"><span className="mono">{store.assets.length} SYMBOLS</span> · 独立持仓 / 情景 · {storageError?'仅当前会话':'自动保存到本机'}</div>
+        </div>
+        <p className="text-[11px] muted mt-3">所有价格均为模拟输入，未接入行情。当前预设：初始价 {usd(active.config.s)} · 行权价间距 {usd(active.config.gap)} · 初始 IV {active.config.iv}%。切换标的保留各自的持仓、盈亏与撤销记录。</p>
+        {(storageError||loaded.notice)&&<p role="status" className="text-xs negative mt-3">{storageError||loaded.notice}</p>}
+        {showForm&&<form onSubmit={addAsset} noValidate className="divider mt-4 pt-4" aria-label="新增标的表单">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <label className="text-xs muted">标的代码<input ref={symbolInput} className="number-input mt-2" aria-label="新增标的代码" maxLength={20} placeholder="例如 AAPL" value={draft.symbol} onChange={e=>setDraft(d=>({...d,symbol:e.target.value}))}/></label>
+            <label className="text-xs muted">名称（可选）<input className="number-input mt-2" aria-label="新增标的名称" maxLength={60} placeholder="用于显示" value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))}/></label>
+            <label className="text-xs muted">模拟初始价格 $<input className="number-input mt-2" aria-label="新增标的初始价格" type="number" min="1" max="10000" step="0.01" value={draft.s} onChange={e=>setDraft(d=>({...d,s:e.target.value}))}/></label>
+            <label className="text-xs muted">初始 IV %<input className="number-input mt-2" aria-label="新增标的IV" type="number" min="15" max="100" step="1" value={draft.iv} onChange={e=>setDraft(d=>({...d,iv:e.target.value}))}/></label>
+            <label className="text-xs muted">行权价间距 $<input className="number-input mt-2" aria-label="新增标的行权价间距" type="number" min="0.01" step="0.01" value={draft.gap} onChange={e=>setDraft(d=>({...d,gap:e.target.value}))}/></label>
+          </div>
+          <p className="text-[11px] muted mt-3">以初始价格 K 建仓：买 1 张 K Put、卖 2 张 (K − 间距) Put；保护腿使用 K − 2 × 间距。现价滑块范围自动设为初始价格的 65%–135%，初始期限 30 天。参数可在沙盘和持仓表中调整。</p>
+          {error&&<p role="alert" className="negative text-xs mt-3">{error}</p>}
+          <div className="flex gap-2 mt-4"><button className="btn btn-primary" type="submit">创建并切换</button><button className="btn btn-ghost" type="button" onClick={()=>{setShowForm(false);setError('');}}>取消</button></div>
+        </form>}
+      </section>;
+      return <Terminal key={active.config.symbol} asset={active.config} initial={active.workspace} onSave={saveWorkspace} toolbar={toolbar}/>;
     }
     ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
   </script>
