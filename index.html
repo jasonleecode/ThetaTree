@@ -140,7 +140,7 @@
     const assetStrikes=asset=>({long:asset.s,short:roundPrice(asset.s-asset.gap),protection:roundPrice(asset.s-2*asset.gap)});
     function createWorkspace(asset){const scenario=assetScenario(asset);return {scenario,book:createBook(scenario,'ratio',assetStrikes(asset)),calc:{type:'put',strike:asset.s},history:[]};}
     const STORAGE_KEY='thetatree.multi-asset.v1';
-    function defaultStore(){return {version:1,active:'SPCX',assets:BUILTIN_ASSETS.map(config=>({config:{...config},workspace:createWorkspace(config)}))};}
+    function defaultStore(){return {version:1,active:'TQQQ',assets:BUILTIN_ASSETS.map(config=>({config:{...config},workspace:createWorkspace(config)}))};}
     const inRange=(v,a,b)=>Number.isFinite(v)&&v>=a&&v<=b;
     function validateAsset(asset){
       return asset&&/^[A-Z0-9][A-Z0-9._-]{0,19}$/.test(asset.symbol)&&typeof asset.name==='string'&&asset.name.trim().length>0&&asset.name.length<=60&&
@@ -168,7 +168,7 @@
         w.history=[];
       }
       if(!symbols.has('SPCX')||!symbols.has('TQQQ'))throw new Error('Missing built-in assets');
-      if(!symbols.has(data.active))data.active='SPCX';
+      if(!symbols.has(data.active))data.active='TQQQ';
       nextId=maxId;return data;
     }
     function encodeStore(data){return JSON.stringify({version:1,active:data.active,assets:data.assets.map(({config,workspace})=>({config,workspace:{scenario:workspace.scenario,book:workspace.book,calc:workspace.calc}}))});}
