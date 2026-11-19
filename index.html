@@ -188,92 +188,99 @@
     }
     const MARKET_GROUPS=[
       {id:'indices',title:'股票指数',note:'美股 / 港股 / A股 · 指数点位',items:[
-        ['NASDAQ:IXIC','纳斯达克综合指数','美股 · 点','ixic'],['NASDAQ:NDX','纳斯达克100指数','美股 · 点','ndx'],['SP:SPX','标普500指数','美股 · 点','spx'],['HSI:HSI','恒生指数','港股 · 点'],['SSE:000300','沪深300指数','A股 · 点']]},
+        ['NASDAQ:IXIC','纳斯达克综合指数','美股 · 点','ixic'],['NASDAQ:NDX','纳斯达克100指数','美股 · 点','ndx'],['SP:SPX','标普500指数','美股 · 点','spx'],['HSI:HSI','恒生指数','港股 · 点','hsi'],['SSE:000300','沪深300指数','A股 · 点','csi300']]},
       {id:'commodities',title:'大宗商品',note:'黄金现货与原油期货，报价口径不同',items:[
-        ['OANDA:XAUUSD','黄金现货','美元 / 盎司'],['NYMEX:CL1!','WTI 原油期货','美元 / 桶','wti'],['ICEEUR:BRN1!','布伦特原油期货','美元 / 桶','brent']]},
+        ['OANDA:XAUUSD','黄金现货','美元 / 盎司','gold'],['NYMEX:CL1!','WTI 原油期货','美元 / 桶','wti'],['ICEEUR:BRN1!','布伦特原油期货','美元 / 桶','brent']]},
       {id:'fx',title:'外汇汇率',note:'每 1 美元可兑换的在岸人民币或日元数量',items:[
         ['FX_IDC:USDCNY','美元兑人民币','人民币 / 美元','usdcny'],['FX:USDJPY','美元兑日元','日元 / 美元','usdjpy']]},
       {id:'volatility',title:'市场波动',note:'VIX 反映标普500未来30天的预期年化波动率',items:[['CBOE:VIX','VIX 标普500波动率指数','年化波动率 · %','vix']]}
     ];
-    function QuoteTrend({quote,name}){
+    function useMarketData(path,attempt=0){
+      const [state,setState]=useState({});
+      useEffect(()=>{
+        if(!path)return;
+        const controller=new AbortController();
+        let timer;
+        async function read(){
+          let delay=5000;
+          try{
+            const response=await fetch(path,{signal:controller.signal,cache:'no-store'});
+            if(!response.ok)throw new Error();
+            const data=await response.json();
+            if(controller.signal.aborted)return;
+            if(data.status==='loading')delay=1000;
+            setState({path,quote:Number.isFinite(data.price)?data:null,error:data.error||''});
+          }catch{
+            if(!controller.signal.aborted)setState(prev=>({...prev,path,quote:prev.path===path?prev.quote:null,error:'无法连接本地行情服务'}));
+          }finally{
+            if(!controller.signal.aborted)timer=setTimeout(read,delay);
+          }
+        }
+        read();
+        return ()=>{controller.abort();clearTimeout(timer);};
+      },[path,attempt]);
+      return path&&state.path===path?state:{quote:null,error:''};
+    }
+    function MarketWarnings(){
+      const [message,setMessage]=useState('');
+      useEffect(()=>{
+        const controller=new AbortController();
+        let timer;
+        async function read(){
+          try{
+            const response=await fetch('/api/market-status',{signal:controller.signal});
+            if(!response.ok)throw new Error();
+            const {symbols}=await response.json();
+            if(!controller.signal.aborted)setMessage(symbols.length?'行情更新异常：'+symbols.join('、')+'。后台正在重试。':'');
+          }catch{if(!controller.signal.aborted)setMessage('本地行情服务不可用，正在重试。');}
+          finally{if(!controller.signal.aborted)timer=setTimeout(read,5000);}
+        }
+        read();return ()=>{controller.abort();clearTimeout(timer);};
+      },[]);
+      return message?<p role="alert" className="negative text-xs mt-3">{message}</p>:null;
+    }
+    function QuoteTrend({quote,name,period='1mo',large=false}){
       const canvas=useRef(null);
       useEffect(()=>{
         if(!canvas.current)return;
-        const date=new Intl.DateTimeFormat('zh-CN',{timeZone:quote.timezone,month:'numeric',day:'numeric'});
+        const date=new Intl.DateTimeFormat('zh-CN',{timeZone:quote.timezone,...(period==='1d'?{hour:'2-digit',minute:'2-digit'}:{year:'numeric',month:'numeric',day:'numeric'})});
         const labels=quote.history.map(([time])=>date.format(time*1000));
         const chart=new Chart(canvas.current,{type:'line',data:{labels,datasets:[{
           label:name,data:quote.history.map(([,price])=>price),borderColor:'#55c9ee',
           backgroundColor:'rgba(85,201,238,0.09)',fill:true,borderWidth:2,pointRadius:0,pointHoverRadius:3
         }]},options:{responsive:true,maintainAspectRatio:false,animation:false,
           interaction:{mode:'index',intersect:false},plugins:{legend:{display:false}},
-          scales:{x:{display:false},y:{position:'right',grid:{color:'#25303e'},ticks:{maxTicksLimit:3,color:'#8390a5'}}}}});
+          scales:{x:{display:large,ticks:{maxTicksLimit:5,color:'#8390a5'}},y:{position:'right',grid:{color:'#25303e'},ticks:{maxTicksLimit:3,color:'#8390a5'}}}}});
         return ()=>chart.destroy();
-      },[quote,name]);
-      return <figure className="mt-3"><figcaption className="muted text-[11px]">近一个月走势（日线）</figcaption>
-        {quote.history?.length>=2?<div className="relative h-24"><canvas ref={canvas} role="img" aria-label={name+'近一个月价格走势'}/></div>
+      },[quote,name,period,large]);
+      return <figure className="mt-3">{!large&&<figcaption className="muted text-[11px]">近一个月走势（日线）</figcaption>}
+        {quote.history?.length>=2?<div className={large?'relative h-80':'relative h-24'}><canvas ref={canvas} role="img" aria-label={name+'价格走势'}/></div>
           :<p className="muted text-xs">暂无足够历史数据</p>}
       </figure>;
     }
     function MarketQuote({item,attempt}){
       const [,name,unit,id]=item, digits=({usdcny:4,usdjpy:3})[id]??2;
-      const [quote,setQuote]=useState(null),[error,setError]=useState(false);
-      useEffect(()=>{
-        const controller=new AbortController();
-        setQuote(null);
-        setError(false);
-        fetch('/api/quote/'+id,{signal:controller.signal}).then(response=>{
-          if(!response.ok)throw new Error();
-          return response.json();
-        }).then(data=>{if(!controller.signal.aborted)setQuote(data);})
-          .catch(()=>{if(!controller.signal.aborted)setError(true);});
-        return ()=>controller.abort();
-      },[id,attempt]);
+      const {quote,error}=useMarketData('/api/quote/'+id,attempt);
       return <article className="side-card">
         <h3 className="text-sm">{name}</h3>
         <div className="mono text-xl my-2" role="status">{quote?quote.price.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits}):error?'报价获取失败':'加载中…'}</div>
-        <div className="muted text-[11px]">{unit} · Yahoo Finance</div>
+        <div className="muted text-[11px]">{unit} · {id==='gold'?'Gold API':'Yahoo Finance'}</div>
         {quote&&<div className="muted text-[11px]">报价时间（本地） {new Date(quote.time*1000).toLocaleString('zh-CN')}</div>}
-        {quote&&<QuoteTrend quote={quote} name={name}/>}
+        {error&&<p role="alert" className="text-xs negative">{error} · 自动重试{quote?'，显示最近报价':''}</p>}
+        {quote?.history&&<QuoteTrend quote={quote} name={name}/>}
       </article>;
     }
-    const marketWidgetTheme={
-      colorTheme:'dark',
-      isTransparent:false,
-      backgroundColor:getComputedStyle(document.documentElement).getPropertyValue('--panel').trim()
-    };
     function MarketWatch(){
-      const [active,setActive]=useState('indices'),[attempt,setAttempt]=useState(0),[status,setStatus]=useState('loading');
-      const host=useRef(null),group=MARKET_GROUPS.find(g=>g.id===active);
-      useEffect(()=>{
-        const container=host.current;
-        if(!container)return;
-        setStatus('loading');
-        const widget=document.createElement('div');
-        widget.className='tradingview-widget-container__widget';
-        container.replaceChildren(widget);
-        const script=document.createElement('script');
-        script.src='https://s3.tradingview.com/external-embedding/embed-widget-market-quotes.js';
-        script.async=true;
-        script.textContent=JSON.stringify({width:'100%',height:350,locale:'zh_CN',...marketWidgetTheme,showSymbolLogo:true,
-          symbolsGroups:[{name:group.title,symbols:group.items.filter(item=>!item[3]).map(([name,displayName])=>({name,displayName}))}]});
-        // A loaded script does not guarantee that cross-origin quotes are available.
-        script.onload=()=>setStatus('requested');
-        script.onerror=()=>setStatus('error');
-        container.appendChild(script);
-        const timer=setTimeout(()=>setStatus(s=>s==='loading'?'slow':s),12000);
-        return()=>{clearTimeout(timer);script.onload=null;script.onerror=null;container.replaceChildren();};
-      },[active,attempt]);
+      const [active,setActive]=useState('indices'),[attempt,setAttempt]=useState(0);
+      const group=MARKET_GROUPS.find(g=>g.id===active);
       return <section className="panel mt-6 mb-2" aria-labelledby="market-heading">
         <div className="panel-head flex-wrap"><div><div className="eyebrow mb-1">GLOBAL MARKET WATCH</div><h2 id="market-heading" className="text-base font-semibold">市场观察 <span className="muted text-xs font-normal ml-2">{MARKET_GROUPS.reduce((total,g)=>total+g.items.length,0)} 项关注指标</span></h2></div><button className="btn btn-ghost" onClick={()=>setAttempt(n=>n+1)}>重新加载行情 ↻</button></div>
         <div className="p-4 md:p-5">
           <div className="flex flex-wrap gap-2 mb-3" role="group" aria-label="行情分类">{MARKET_GROUPS.map(g=><button key={g.id} aria-pressed={g.id===active} className={'btn '+(g.id===active?'btn-primary':'btn-ghost')} onClick={()=>setActive(g.id)}>{g.title} <span className="mono ml-1">{g.items.length}</span></button>)}</div>
           <p className="text-xs muted mb-3">{group.note}</p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{group.items.filter(item=>item[3]).map(item=><MarketQuote key={item[3]} item={item} attempt={attempt}/>)}</div>
-          {group.items.some(item=>!item[3])&&<><p role="status" className="text-[11px] muted my-2">{status==='error'?'行情组件加载失败，请重试或使用下方链接查看。':status==='slow'?'加载较慢，可使用下方链接查看或重新加载。':status==='loading'?'正在加载行情组件…':'行情由 TradingView 提供；报价时间、延迟与可用性以组件标识为准。若无报价，请使用下方链接。'}</p>
-          <div ref={host} className="tradingview-widget-container market-widget-frame" style={{height:350,width:'100%',overflow:'hidden'}}/>
-          <div className="tradingview-widget-copyright text-[10px] mt-2"><a href="https://www.tradingview.com/markets/" target="_blank" rel="noopener noreferrer nofollow">Market summary</a> by TradingView</div></>}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{group.items.map(item=><MarketQuote key={item[3]} item={item} attempt={attempt}/>)}</div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-4">{group.items.map(([symbol,name,unit])=><a key={symbol} href={'https://www.tradingview.com/symbols/'+symbol.replace(':','-')+'/'} target="_blank" rel="noopener noreferrer" className="side-card text-xs" style={{textDecoration:'none'}}><span>{name} ↗</span><span className="muted block text-[10px] mt-1">{unit} · {symbol}</span></a>)}</div>
-          <p className="text-[10px] muted mt-4">行情需要联网，部分交易所数据可能延迟或无法嵌入。休市时显示最近交易报价；原油连续期货会换月。市场观察独立于下方模拟参数，不会自动修改持仓或沙盘价格。</p>
+          <p className="text-[10px] muted mt-4">行情需要联网，部分交易所数据可能延迟或暂时不可用。休市时显示最近交易报价；原油连续期货会换月。市场观察独立于下方模拟参数，不会自动修改持仓或沙盘价格。</p>
         </div>
       </section>;
     }
@@ -290,23 +297,18 @@
         return {items:data.items,selected:data.items.some(i=>i.symbol===data.selected)?data.selected:data.items[0]?.symbol||'',notice:''};
       }catch{return {items:DEFAULT_STOCKS,selected:DEFAULT_STOCKS[0].symbol,notice:'无法恢复观察列表，已载入默认股票。'};}
     }
-    function StockWidget({kind,items,selected,attempt}){
-      const host=useRef(null),[status,setStatus]=useState('loading');
-      useEffect(()=>{
-        const container=host.current;setStatus('loading');
-        const widget=document.createElement('div');widget.className='tradingview-widget-container__widget';container.replaceChildren(widget);
-        const script=document.createElement('script');script.async=true;
-        script.src='https://s3.tradingview.com/external-embedding/embed-widget-'+(kind==='chart'?'symbol-overview':'market-quotes')+'.js';
-        const config={width:'100%',height:kind==='chart'?440:Math.max(250,Math.min(550,items.length*42+100)),locale:'zh_CN',...marketWidgetTheme};
-        if(kind==='chart')Object.assign(config,{symbols:[[selected.name,selected.symbol+'|1D']],chartOnly:false,showVolume:true,showMA:false,hideDateRanges:false,hideMarketStatus:false,hideSymbolLogo:false,scalePosition:'right',scaleMode:'Normal',fontFamily:'Arial, sans-serif',chartType:'area',
-          lineColor:'#55c9ee',topColor:'rgba(85,201,238,0.24)',bottomColor:'rgba(85,201,238,0.02)',
-          gridLineColor:'#25303e',fontColor:'#8390a5',widgetFontColor:'#e8edf5',dateRanges:['1d|1','1m|30','3m|60','12m|1D','60m|1W','all|1M']});
-        else Object.assign(config,{showSymbolLogo:true,symbolsGroups:[{name:'我的股票',symbols:items.map(i=>({name:i.symbol,displayName:i.name}))}]});
-        script.textContent=JSON.stringify(config);script.onload=()=>setStatus('requested');script.onerror=()=>setStatus('error');container.appendChild(script);
-        const timer=setTimeout(()=>setStatus(s=>s==='loading'?'slow':s),12000);
-        return()=>{clearTimeout(timer);script.onload=null;script.onerror=null;container.replaceChildren();};
-      },[kind,items,selected,attempt]);
-      return <div><p className="text-[10px] muted mb-2" role="status">{status==='loading'?'正在加载'+(kind==='chart'?'历史走势':'股票报价')+'…':status==='error'?'加载失败，请重新加载或打开外部行情。':status==='slow'?'加载较慢，请检查网络或使用外部行情链接。':'报价及历史价格由 TradingView 提供，时间与延迟以组件为准。'}</p><div ref={host} className="tradingview-widget-container market-widget-frame" style={{width:'100%',height:kind==='chart'?440:Math.max(250,Math.min(550,items.length*42+100)),overflow:'hidden'}}/><div className="tradingview-widget-copyright text-[10px] mt-2"><a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer nofollow">Track all markets</a> by TradingView</div></div>;
+    function StockPrice({item,attempt}){
+      const {quote,error}=useMarketData('/api/stock/'+item.symbol+'/1mo',attempt);
+      return <span className="block text-xs mono">{quote&&<>{quote.price.toLocaleString()} {quote.currency} · {new Date(quote.time*1000).toLocaleString()}</>}
+        {error?<span className="negative block" role="alert">{error} · 自动重试</span>:!quote&&'加载中…'}</span>;
+    }
+    function StockChart({selected,attempt}){
+      const [period,setPeriod]=useState('1mo');
+      const {quote,error}=useMarketData('/api/stock/'+selected.symbol+'/'+period,attempt);
+      return <div><div className="flex flex-wrap gap-2">{Object.entries({'1d':'日内','1mo':'1个月','3mo':'3个月','1y':'1年','5y':'5年','max':'全部'}).map(([key,label])=>
+        <button key={key} className={'btn '+(key===period?'btn-primary':'btn-ghost')} aria-pressed={key===period} onClick={()=>setPeriod(key)}>{label}</button>)}</div>
+        {error&&<p role="alert" className="negative text-xs">{error} · 自动重试{quote?'，显示最近数据':''}</p>}
+        {quote?<QuoteTrend large quote={quote} name={selected.name} period={period}/>:!error&&<p className="muted text-xs">正在加载走势…</p>}</div>;
     }
     // Serialize writes, including writes still finishing when the market tab closes.
     let stockDatabaseQueue=Promise.resolve();
@@ -378,11 +380,11 @@
           <p className="text-[10px] muted mt-3">按交易所和代码添加：苹果 NASDAQ / AAPL，腾讯 HKEX / 700，贵州茅台 SSE / 600519。代码由行情源识别，不支持按公司名搜索；无效或不支持的代码可能无报价，可移除后重新添加。</p>
           {error&&<p role="alert" className="text-xs negative mt-2">{error}</p>}
           {!items.length?<div className="py-12 text-center muted text-sm">{ready?'观察列表为空，添加第一只股票开始查看价格与历史走势。':'等待数据库连接…'}</div>:<div className="grid grid-cols-1 xl:grid-cols-[minmax(280px,1fr)_minmax(0,2fr)] gap-5 mt-5">
-            <div className="min-w-0"><h3 className="text-sm font-semibold mb-3">我的观察列表</h3><div className="space-y-2 max-h-[320px] overflow-y-auto mb-4">{items.map(item=><div key={item.symbol} className="flex gap-2 items-center border border-[#25303e] rounded-lg p-2"><button className={'flex-1 text-left min-w-0 rounded px-2 py-1 '+(selected.symbol===item.symbol?'bg-[#203224] positive':'')} aria-pressed={selected.symbol===item.symbol} onClick={()=>setSelectedSymbol(item.symbol)}><span className="block text-sm break-words">{item.name}</span><span className="block mono text-[10px] muted">{item.symbol}</span></button><button className="btn btn-ghost" aria-label={'移除 '+item.name} onClick={()=>removeStock(item.symbol)}>移除</button></div>)}</div><StockWidget kind="quotes" items={items} attempt={attempt}/></div>
-            <div className="min-w-0"><div className="flex justify-between flex-wrap gap-2 items-center mb-3"><h3 className="text-sm font-semibold">{selected.name} <span className="mono text-xs muted ml-2">{selected.symbol}</span></h3><a className="text-xs" href={'https://www.tradingview.com/symbols/'+selected.symbol.replace(':','-')+'/'} target="_blank" rel="noopener noreferrer">打开完整行情 ↗</a></div><StockWidget kind="chart" items={items} selected={selected} attempt={attempt}/><p className="text-[10px] muted mt-3">在图表中切换日内、1个月、3个月、1年、5年或全部区间，移动指针查看历史时间与价格。报价币种与复权口径以行情源标识为准。</p></div>
+            <div className="min-w-0"><h3 className="text-sm font-semibold mb-3">我的观察列表</h3><div className="space-y-2 max-h-[320px] overflow-y-auto mb-4">{items.map(item=><div key={item.symbol} className="flex gap-2 items-center border border-[#25303e] rounded-lg p-2"><button className={'flex-1 text-left min-w-0 rounded px-2 py-1 '+(selected.symbol===item.symbol?'bg-[#203224] positive':'')} aria-pressed={selected.symbol===item.symbol} onClick={()=>setSelectedSymbol(item.symbol)}><span className="block text-sm break-words">{item.name}</span><span className="block mono text-[10px] muted">{item.symbol}</span><StockPrice item={item} attempt={attempt}/></button><button className="btn btn-ghost" aria-label={'移除 '+item.name} onClick={()=>removeStock(item.symbol)}>移除</button></div>)}</div></div>
+            <div className="min-w-0"><div className="flex justify-between flex-wrap gap-2 items-center mb-3"><h3 className="text-sm font-semibold">{selected.name} <span className="mono text-xs muted ml-2">{selected.symbol}</span></h3><a className="text-xs" href={'https://www.tradingview.com/symbols/'+selected.symbol.replace(':','-')+'/'} target="_blank" rel="noopener noreferrer">打开完整行情 ↗</a></div><StockChart selected={selected} attempt={attempt}/><p className="text-[10px] muted mt-3">在图表中切换日内、1个月、3个月、1年、5年或全部区间，移动指针查看历史时间与价格。报价币种与复权口径以行情源标识为准。</p></div>
           </div>}
           </fieldset>
-          <p className="text-[10px] muted mt-4">关注股票、排列顺序和当前选择保存到服务端 SQLite，刷新或重启服务后恢复；首次使用会迁移本浏览器已有列表。行情仍由 TradingView 提供，可能延迟或受交易所权限限制；关注股票不会建立模拟持仓。</p>
+          <p className="text-[10px] muted mt-4">关注股票、排列顺序和当前选择保存到服务端 SQLite，刷新或重启服务后恢复；首次使用会迁移本浏览器已有列表。行情由本地后台定期获取，可能延迟或受交易所权限限制；关注股票不会建立模拟持仓。</p>
         </div>
       </section>;
     }
@@ -398,8 +400,8 @@
       };
       return <input className="number-input" type="number" aria-label={label} min={min} max={max} step={step} value={draft} onChange={e=>{e.target.setCustomValidity('');setDraft(e.target.value);}} onBlur={commit} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();if(e.key==='Escape'){setDraft(String(value));e.currentTarget.setCustomValidity('');}}}/>;
     }
-    function Slider({label,symbol,value,min,max,step,format,onChange,id}) {
-      return <div className="slider-box"><div className="flex justify-between items-center mb-5"><label htmlFor={id} className="text-xs muted">{label} <span className="mono ml-1">{symbol}</span></label><output htmlFor={id} className="mono text-lg font-semibold">{format(value)}</output></div><input id={id} type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} style={{background:`linear-gradient(to right, #a7f36b ${(value-min)/(max-min)*100}%, #2b384a ${(value-min)/(max-min)*100}%)`}}/><div className="flex justify-between mt-3 mono text-[10px] muted"><span>{format(min)}</span><span>{format(max)}</span></div></div>;
+    function Slider({label,symbol,value,min,max,step,format,onChange,id,disabled=false}) {
+      return <div className="slider-box"><div className="flex justify-between items-center mb-5"><label htmlFor={id} className="text-xs muted">{label} <span className="mono ml-1">{symbol}</span></label><output htmlFor={id} className="mono text-lg font-semibold">{format(value)}</output></div><input id={id} disabled={disabled} type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} style={{background:`linear-gradient(to right, #a7f36b ${(value-min)/(max-min)*100}%, #2b384a ${(value-min)/(max-min)*100}%)`}}/><div className="flex justify-between mt-3 mono text-[10px] muted"><span>{format(min)}</span><span>{format(max)}</span></div></div>;
     }
     const chartOverlay={id:'scenarioOverlay',afterDraw(chart,args,opts){
       const {ctx,chartArea:a,scales:{x,y}}=chart;if(!a)return;
@@ -431,11 +433,13 @@
       },[book,scenario,analysis,asset]);
       return <><div className="chart-wrap"><canvas ref={canvas} id="payoff-chart" role="img" aria-label="到期损益与当日 Black–Scholes 动态损益曲线"/></div><div className="flex justify-between px-6 pb-4 pt-2 text-[10px] muted"><span>损益 / USD · 已计入权利金与已实现盈亏</span><span className="mono" data-testid="latency">{fmt(latency,1)} ms · {scenario.days}D</span></div></>;
     }
-    function Terminal({asset,initial,onSave,toolbar,activeView,onViewChange}){
-      const [scenario,setScenario]=useState(initial.scenario),[book,setBook]=useState(initial.book),[history,setHistory]=useState(initial.history||[]),[toast,setToast]=useState(''),[info,setInfo]=useState(false);
+    function Terminal({asset,initial,onSave,toolbar,activeView,onViewChange,live,setLive}){
+      const [manual,setScenario]=useState(initial.scenario),[book,setBook]=useState(initial.book),[history,setHistory]=useState(initial.history||[]),[toast,setToast]=useState(''),[info,setInfo]=useState(false);
       const [calc,setCalc]=useState(initial.calc);
+      const {quote,error:quoteError}=useMarketData(live&&asset.symbol!=='SPCX'?'/api/spot/'+asset.symbol:null);
+      const scenario=useMemo(()=>quote?{...manual,s:quote.price}:manual,[manual,quote]);
       const strikes=useMemo(()=>assetStrikes(asset),[asset]);
-      useEffect(()=>{onSave(asset.symbol,{scenario,book,history,calc});},[asset.symbol,scenario,book,history,calc,onSave]);
+      useEffect(()=>{onSave(asset.symbol,{scenario:manual,book,history,calc});},[asset.symbol,manual,book,history,calc,onSave]);
       const greeks=useMemo(()=>portfolioGreeks(book,scenario),[book,scenario]);
       const analysis=useMemo(()=>expiryAnalysis(book,scenario),[book,scenario]);
       const current=pnl(book,scenario),atExpiry=pnl(book,scenario,scenario.s,true);
@@ -451,8 +455,8 @@
       const rootText=[...analysis.roots.map(x=>usd(x)),...analysis.intervals.map(([a,b])=>usd(a)+'–'+(b===Infinity?'∞':usd(b)))].join(' / ')||'无';
       useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(t);},[toast]);
       function updateScenario(key,value){setScenario(s=>({...s,[key]:value}));}
-      function transact(next,message,newScenario=scenario){
-        setHistory(h=>[...h.slice(-39),{book,scenario}]);
+      function transact(next,message,newScenario=manual){
+        setHistory(h=>[...h.slice(-39),{book,scenario:manual}]);
         setBook({...next,log:[{id:Date.now()+Math.random(),message,s:scenario.s,iv:scenario.iv,days:scenario.days},...next.log].slice(0,60)});
         setScenario({...newScenario});setToast(message);
       }
@@ -460,7 +464,7 @@
         // A short-dated, lower-IV example; profitability also depends on strike spacing.
         // Loading it explicitly starts a new book; it is not a cost-free hedge.
         const s=mode==='w'?{...assetScenario(asset),iv:25,days:1}:assetScenario(asset);
-        transact(createBook(s,mode,strikes),mode==='w'?`已新建 ${asset.symbol} W 型示例：S ${usd(asset.s)} / IV 25% / 1 天；历史盈亏重置`:`已新建 ${asset.symbol} 默认 1:−2 比率价差；历史盈亏重置`,s);
+        transact(createBook(quote?{...s,s:quote.price}:s,mode,strikes),mode==='w'?`已新建 ${asset.symbol} W 型示例：S ${usd(asset.s)} / IV 25% / 1 天；历史盈亏重置`:`已新建 ${asset.symbol} 默认 1:−2 比率价差；历史盈亏重置`,s);
       }
       function toggleProtection(){
         if(protection){transact(replaceLeg(book,protection.id,null,scenario),'已按当前理论价平仓保护腿，损益计入已实现盈亏');}
@@ -500,8 +504,12 @@
       return <div className="max-w-[1600px] mx-auto px-4 md:px-8 pb-6">
         <header className="flex items-center justify-between py-5 border-b border-[#25303e] gap-3">
           <div className="flex items-center gap-3"><div className="bg-[#a7f36b] text-[#15220d] rounded-lg p-2"><Icon name="tree" size={25}/></div><div className="text-xl font-semibold tracking-tight">ThetaTree <span className="text-[10px] mono muted ml-2 desktop-label">OPTIONS LAB</span></div><div className="h-5 border-l border-[#344051] mx-3 hidden md:block"/><span className="text-xs muted hidden md:block">策略研究终端</span></div>
-          <div className="flex items-center gap-4"><span className="badge muted hidden sm:inline-flex"><span className="dot"/> 本地模拟 · 无实盘连接</span>{activeView==='options'&&<button className="btn btn-ghost" onClick={()=>setInfo(!info)} aria-expanded={info}>模型说明 ↗</button>}</div>
+          <div className="flex flex-wrap justify-end items-center gap-2"><span className="badge muted hidden sm:inline-flex"><span className="dot"/> 本地模拟 · 无实盘连接</span><button className={'btn '+(live?'btn-primary':'btn-ghost')} aria-pressed={live} onClick={()=>setLive(!live)}>{live?'断开行情':'接入市场行情'}</button>{activeView==='options'&&<button className="btn btn-ghost" onClick={()=>setInfo(!info)} aria-expanded={info}>模型说明 ↗</button>}</div>
         </header>
+        <MarketWarnings/>
+        {live&&<p role="status" className="mt-2 text-xs muted text-right">{asset.symbol} · {asset.symbol==='SPCX'?'模拟标的，使用沙盘现价':quote
+          ?(quoteError?quoteError+'，沿用上次报价':'Yahoo Finance 常规时段报价')+' '+usd(quote.price)+' · '+new Date(quote.time*1000).toLocaleString('zh-CN')+' · 每 15 秒查询，可能延迟'
+          :(quoteError||'正在连接行情')+' · 暂用沙盘现价'}</p>}
         <div role="tablist" aria-label="工作区切换" className="flex gap-2 mt-5 border-b border-[#25303e] pb-4" onKeyDown={e=>{
           const views=['options','markets'];
           if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
@@ -520,7 +528,7 @@
           <div><div className="eyebrow mb-2">STRATEGY WORKSPACE / 01</div><h1 className="text-xl md:text-[27px] font-semibold tracking-tight">期权 1:−2 比率价差<span className="text-[#74839a] mx-2">/</span>W 型策略</h1><p className="text-xs muted mt-2">动态移仓与风险沙盘 <span className="mx-2">·</span> 调整市场情景，观察每一条腿如何改变收益。</p></div>
           <div data-testid="signal" data-state={breached?'red':'green'} role="status" className={'rounded-lg border px-4 py-3 flex gap-3 items-center '+(breached?'border-[#73404b] bg-[#321c25] negative':'border-[#344f30] bg-[#172519] positive')}><span className="dot"/><div><div className="text-xs font-semibold">{breached?'跌破卖方行权价 · 需要关注':'未触发卖方行权价预警'}</div><div className="text-[10px] opacity-70 mono mt-1">{trigger===null?'NO SHORT PUT':`S ${fmt(scenario.s)} ${breached?'<':'≥'} K ${fmt(trigger)}`} · {greeks.gamma<0?'SHORT GAMMA':'LONG GAMMA'}</div></div></div>
         </section>
-        {info&&<section className="panel p-5 mb-5 text-xs leading-6 muted"><h2 className="text-sm text-white mb-2">模型与记账口径</h2><p>所有标的均使用用户配置的假设价格与 IV，不代表实时行情；SPCX / SpaceX 为模拟标识。每个标的独立记账，不计算跨标的组合风险。欧式 Black–Scholes 模型，统一到期日、统一 IV，股息率 q = 0，默认年化无风险利率 4%；每张期权 100 股，正股按股计算。不计手续费、滑点、保证金、借券费、资金利息及提前行权。</p><p>总损益 = 已实现盈亏 + Σ 数量 × 合约乘数 ×（当前价值 − 入场价）。滑块只改变估值情景，不改变入场成本；T 为假设剩余期限。到期线不受 S / IV / T 改变；S 改变光标，IV / T 改变当日曲线。移仓按当前理论价平旧开新；成本字段为手工修正历史基准。所有到期盈亏平衡点在 S ≥ 0 上精确分段求解。</p><p>Delta：等效持股数；Gamma：标的每涨 $1 的 Delta 变化；Theta：每自然日美元变化；Vega：IV 每增加 1 个百分点的美元变化。Roll Down 保持到期日，不模拟跨期展期。W 型两谷不保证微亏，期权成本和既有移仓损失决定曲线高度；左端盈利受 S ≥ 0 限制。</p><p className="mt-2">公式参考：<a href="https://martin-haugh.github.io/files/FoundationsFE/BlackScholes.pdf" target="_blank" rel="noreferrer">Martin Haugh · The Black–Scholes Model</a>；即时绘图：<a href="https://www.chartjs.org/docs/latest/developers/updates.html" target="_blank" rel="noreferrer">Chart.js 无动画更新</a>。</p></section>}
+        {info&&<section className="panel p-5 mb-5 text-xs leading-6 muted"><h2 className="text-sm text-white mb-2">模型与记账口径</h2><p>现价可取市场报价或沙盘值，IV 使用沙盘设置；SPCX / SpaceX 为模拟标识。每个标的独立记账，不计算跨标的组合风险。欧式 Black–Scholes 模型，统一到期日、统一 IV，股息率 q = 0，默认年化无风险利率 4%；每张期权 100 股，正股按股计算。不计手续费、滑点、保证金、借券费、资金利息及提前行权。</p><p>总损益 = 已实现盈亏 + Σ 数量 × 合约乘数 ×（当前价值 − 入场价）。滑块只改变估值情景，不改变入场成本；T 为假设剩余期限。到期线不受 S / IV / T 改变；S 改变光标，IV / T 改变当日曲线。移仓按当前理论价平旧开新；成本字段为手工修正历史基准。所有到期盈亏平衡点在 S ≥ 0 上精确分段求解。</p><p>Delta：等效持股数；Gamma：标的每涨 $1 的 Delta 变化；Theta：每自然日美元变化；Vega：IV 每增加 1 个百分点的美元变化。Roll Down 保持到期日，不模拟跨期展期。W 型两谷不保证微亏，期权成本和既有移仓损失决定曲线高度；左端盈利受 S ≥ 0 限制。</p><p className="mt-2">公式参考：<a href="https://martin-haugh.github.io/files/FoundationsFE/BlackScholes.pdf" target="_blank" rel="noreferrer">Martin Haugh · The Black–Scholes Model</a>；即时绘图：<a href="https://www.chartjs.org/docs/latest/developers/updates.html" target="_blank" rel="noreferrer">Chart.js 无动画更新</a>。</p></section>}
         <section className="panel grid grid-cols-2 lg:grid-cols-4 divide-x divide-[#25303e] mb-5">
           <div className="stat"><div className="eyebrow">SCENARIO P&L <span className="float-right">当日损益</span></div><div data-testid="pnl" className={'stat-value mono mt-3 '+tone(current)}>{usd(current)}</div><div className="metric-small mt-2">同价到期 <span className={'mono '+tone(atExpiry)}>{usd(atExpiry)}</span></div></div>
           <div className="stat"><div className="eyebrow">NET DELTA <span className="float-right">Δ</span></div><div data-testid="delta" className="stat-value mono mt-3">{signed(greeks.delta)}</div><div className="metric-small mt-2">等效持股 · <span className="mono">股</span></div></div>
@@ -531,13 +539,13 @@
           <main className="min-w-0 space-y-5">
             <section className="panel">
               <div className="panel-head"><div className="flex gap-2 items-center"><Icon name="chart"/><h2 className="font-semibold text-sm">收益结构</h2><span className="badge text-[#a7f36b]">{wReady?'W STRUCTURE':'RATIO / CUSTOM'}</span></div><div className="hidden sm:flex gap-4 text-[10px]"><span><span className="inline-block w-4 border-t-2 border-[#a7f36b] mr-2 align-middle"/>到期损益</span><span><span className="inline-block w-4 border-t-2 border-dashed border-[#55c9ee] mr-2 align-middle"/>当日动态</span></div></div>
-              <div className="px-5 pt-4 flex justify-between gap-3"><div><span className="font-semibold" data-testid="active-symbol">{asset.symbol}</span><span className="muted text-xs ml-2">{asset.name} · 模拟标的</span><span className="mono ml-3">{usd(scenario.s)}</span></div><span className="eyebrow pt-1">PAYOFF PROFILE</span></div>
+              <div className="px-5 pt-4 flex justify-between gap-3"><div><span className="font-semibold" data-testid="active-symbol">{asset.symbol}</span><span className="muted text-xs ml-2">{asset.name} · {quote?'市场报价':'模拟标的'}</span><span className="mono ml-3">{usd(scenario.s)}</span></div><span className="eyebrow pt-1">PAYOFF PROFILE</span></div>
               <div className="flex gap-4 text-[10px] sm:hidden px-5 pt-3"><span className="positive">— 到期损益</span><span className="text-[#55c9ee]">┄ 当日动态</span></div>
               <PayoffChart book={book} scenario={scenario} analysis={analysis} asset={asset}/>
               {wReady&&<div className="grid grid-cols-5 mx-5 mb-4 border border-[#293745] rounded-lg text-center text-[10px] muted"><div className="zone"><span className="positive">↖ 左翼拉升</span><div className="mono mt-1">S &lt; {strikes.protection}</div></div><div className="zone"><span className="negative">左谷 · 保护成本</span><div className="mono mt-1">{usd(pnl(book,scenario,strikes.protection,true),0)}</div></div><div className="zone"><span className="positive">中心尖峰</span><div className="mono mt-1">{usd(pnl(book,scenario,strikes.short,true),0)}</div></div><div className="zone"><span className="negative">右谷 · 权利金</span><div className="mono mt-1">{usd(pnl(book,scenario,strikes.long,true),0)}</div></div><div className="zone"><span className="positive">右翼盈利 ↗</span><div className="mono mt-1">S &gt; {strikes.long}</div></div></div>}
               <div className="divider grid grid-cols-1 sm:grid-cols-3 text-xs"><div className="px-5 py-3"><div className="muted text-[10px]">到期盈亏平衡点 · 全域</div><div data-testid="breakeven" className="mono mt-1 break-words text-[#cdd9e9]">{rootText}</div></div><div className="px-5 py-3"><div className="muted text-[10px]">到期最大盈利 · S ≥ 0</div><div className={'mono mt-1 '+tone(analysis.max)}>{analysis.max===Infinity?'无限上行':usd(analysis.max)}</div></div><div className="px-5 py-3"><div className="muted text-[10px]">到期最大亏损 · S ≥ 0</div><div className="mono mt-1 negative">{analysis.min===-Infinity?'无限亏损':usd(Math.max(0,-analysis.min))}</div></div></div>
             </section>
-            <section className="panel p-5"><div className="flex items-center justify-between mb-4"><h2 className="font-semibold text-sm flex gap-2 items-center"><Icon name="bolt"/>实时情景沙盘</h2><button className="text-[10px] muted hover:text-white" onClick={()=>setScenario(assetScenario(asset))}>重置参数 ↺</button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><Slider id="spot-slider" label="标的现价" symbol="S" value={scenario.s} min={asset.min} max={asset.max} step={0.01} format={v=>'$'+fmt(v,2)} onChange={v=>updateScenario('s',v)}/><Slider id="iv-slider" label="隐含波动率" symbol="IV" value={scenario.iv} min={15} max={100} step={1} format={v=>v+'%'} onChange={v=>updateScenario('iv',v)}/><Slider id="days-slider" label="剩余天数" symbol="T" value={scenario.days} min={1} max={60} step={1} format={v=>v+' 天'} onChange={v=>updateScenario('days',v)}/></div><p className="text-[10px] muted mt-3">固定入场成本 · 参数变化即时重估；到期折线保持不变，现价定位线与动态曲线同步更新。</p></section>
+            <section className="panel p-5"><div className="flex items-center justify-between mb-4"><h2 className="font-semibold text-sm flex gap-2 items-center"><Icon name="bolt"/>实时情景沙盘</h2><button className="text-[10px] muted hover:text-white" onClick={()=>setScenario(assetScenario(asset))}>重置参数 ↺</button></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3"><Slider id="spot-slider" label="标的现价" symbol="S" disabled={!!quote} value={scenario.s} min={Math.min(asset.min,scenario.s)} max={Math.max(asset.max,scenario.s)} step={0.01} format={v=>'$'+fmt(v,2)} onChange={v=>updateScenario('s',v)}/><Slider id="iv-slider" label="隐含波动率" symbol="IV" value={scenario.iv} min={15} max={100} step={1} format={v=>v+'%'} onChange={v=>updateScenario('iv',v)}/><Slider id="days-slider" label="剩余天数" symbol="T" value={scenario.days} min={1} max={60} step={1} format={v=>v+' 天'} onChange={v=>updateScenario('days',v)}/></div><p className="text-[10px] muted mt-3">固定入场成本 · 参数变化即时重估；到期折线保持不变，现价定位线与动态曲线同步更新。</p></section>
             <section className="panel overflow-hidden">
               <div className="panel-head flex-wrap"><div><h2 className="font-semibold text-sm">持仓构建器 <span className="mono text-xs muted ml-2">{book.legs.length} LEGS</span></h2></div><div className="flex gap-2 flex-wrap"><button className="btn btn-ghost" onClick={undo} disabled={!history.length}>撤销</button><button className="btn" onClick={()=>transact({...book,legs:[...book.legs,makeLeg('put',Math.min(10000,Math.max(.01,roundPrice(scenario.s))),1,scenario)],mode:'custom'},'已按当前理论价新增 1 张 Put')}>＋ 添加腿</button></div></div>
               <div className="px-5 py-3 flex flex-wrap gap-2"><button className={'btn '+(!protection?'btn-ghost':'border-[#628949] text-[#a7f36b]')} onClick={toggleProtection} aria-pressed={!!protection}>{protection?'✓ 平仓保护腿':`＋ 2× $${targetStrike} Put 保护`}</button><button className="btn btn-ghost" onClick={completeW}>叠加 W 左右翼</button></div>
@@ -564,20 +572,77 @@
         {toast&&<div className="toast text-xs" role="status">{toast}</div>}
       </div>;
     }
+    async function workspaceRequest(method,payload){
+      const response=await fetch('/api/workspace',{method,headers:payload?{'Content-Type':'application/json'}:{},body:payload?JSON.stringify(payload):undefined});
+      if(method==='GET'&&(response.status===404||(response.ok&&response.headers.get('Content-Type')?.includes('text/html'))))return null;
+      const data=await response.json();
+      if(!response.ok)throw Object.assign(new Error(data.error||'数据库请求失败'),{status:response.status});
+      return data;
+    }
+    function browserWorkspace(){
+      const raw=localStorage.getItem(STORAGE_KEY);
+      return raw?decodeStore(raw):defaultStore();
+    }
     function App(){
-      const [activeView,setActiveView]=useState('options');
-      const [loaded]=useState(()=>{
-        try{const raw=window.localStorage.getItem(STORAGE_KEY);return {store:raw?decodeStore(raw):defaultStore(),notice:''};}
-        catch{return {store:defaultStore(),notice:'无法读取本机保存的数据，已载入默认标的。请检查浏览器存储权限或保存的数据。'};}
-      });
+      const [loaded,setLoaded]=useState(null),[error,setError]=useState('');
+      useEffect(()=>{
+        async function load(){
+          let db=location.protocol==='file:'?null:await workspaceRequest('GET');
+          if(!db){
+            let store,notice='';
+            try{store=browserWorkspace();}catch{store=defaultStore();notice='无法读取浏览器工作区，已载入默认标的。';}
+            setLoaded({store,local:true,notice});return;
+          }
+          if(db.store===null){
+            const store=browserWorkspace(),snapshot=JSON.parse(encodeStore(store));
+            try{db={...await workspaceRequest('PUT',{revision:db.revision,store:snapshot}),store:snapshot};}
+            catch(e){if(e.status!==409)throw e;db=await workspaceRequest('GET');}
+          }
+          setLoaded({store:decodeStore(JSON.stringify(db.store)),revision:db.revision});
+        }
+        load().catch(e=>setError('期权工作区读取失败：'+e.message));
+      },[]);
+      if(!loaded)return <div className="panel p-5 m-4" role="status">{error||'正在读取期权工作区…'} {error&&<button className="btn" onClick={()=>location.reload()}>重新读取</button>}</div>;
+      return <WorkspaceApp loaded={loaded}/>;
+    }
+    function WorkspaceApp({loaded}){
+      const [activeView,setActiveView]=useState('options'),[live,setLive]=useState(false);
       const [store,setStore]=useState(loaded.store),[showForm,setShowForm]=useState(false),[error,setError]=useState(''),[storageError,setStorageError]=useState('');
+      const [saving,setSaving]=useState(false),[retry,setRetry]=useState(0);
+      const sync=useRef({revision:loaded.revision,saved:encodeStore(loaded.store),latest:null,busy:false});
       const [draft,setDraft]=useState({symbol:'',name:'',s:'100',iv:'65',gap:'5'});
       const symbolInput=useRef(null);
       useEffect(()=>{if(showForm)symbolInput.current?.focus?.();},[showForm]);
       useEffect(()=>{
-        try{window.localStorage.setItem(STORAGE_KEY,encodeStore(store));setStorageError('');}
-        catch{setStorageError('本机保存不可用或空间不足。当前仍可模拟，但本次修改可能无法在刷新后恢复。');}
-      },[store]);
+        const state=sync.current;
+        state.latest=encodeStore(store);
+        if(loaded.local){
+          try{localStorage.setItem(STORAGE_KEY,state.latest);setStorageError('');}
+          catch{setStorageError('浏览器保存失败，当前更改尚未保存');}
+          return;
+        }
+        if(state.busy||state.saved===state.latest)return;
+        async function save(){
+          state.busy=true;setSaving(true);setStorageError('');
+          try{
+            while(state.saved!==state.latest){
+              const document=state.latest;
+              const data=await workspaceRequest('PUT',{store:JSON.parse(document),revision:state.revision});
+              state.revision=data.revision;state.saved=document;
+            }
+          }catch(e){setStorageError('尚未保存：'+e.message);}
+          finally{state.busy=false;setSaving(false);}
+        }
+        save();
+      },[store,loaded,retry]);
+      useEffect(()=>{
+        function warn(event){
+          const state=sync.current;
+          if(!loaded.local&&state.latest!==state.saved){event.preventDefault();event.returnValue='';}
+        }
+        window.addEventListener('beforeunload',warn);
+        return ()=>window.removeEventListener('beforeunload',warn);
+      },[loaded]);
       const saveWorkspace=useCallback((symbol,workspace)=>{
         setStore(prev=>({...prev,assets:prev.assets.map(item=>item.config.symbol===symbol?{...item,workspace}:item)}));
       },[]);
@@ -595,10 +660,10 @@
       const toolbar=<section className="panel mt-5 p-4" aria-label="标的管理">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3"><label htmlFor="asset-select" className="text-xs muted">当前标的</label><select id="asset-select" aria-label="切换标的" className="!w-auto min-w-[180px] max-w-full" value={store.active} onChange={e=>{setStore(prev=>({...prev,active:e.target.value}));setError('');}}>{store.assets.map(({config})=><option key={config.symbol} value={config.symbol}>{config.symbol} · {config.name}</option>)}</select><button className="btn btn-primary" onClick={()=>{setShowForm(!showForm);setError('');}} aria-expanded={showForm}>{showForm?'收起新增表单':'＋ 新增标的'}</button></div>
-          <div className="text-[10px] muted"><span className="mono">{store.assets.length} SYMBOLS</span> · 独立持仓 / 情景 · {storageError?'仅当前会话':'自动保存到本机'}</div>
+          <div className="text-[10px] muted"><span className="mono">{store.assets.length} SYMBOLS</span> · 独立持仓 / 情景 · {storageError?'尚未保存':loaded.local?'浏览器本地保存':saving?'正在保存至 SQLite…':'已保存至 SQLite'}</div>
         </div>
-        <p className="text-[11px] muted mt-3">所有价格均为模拟输入，未接入行情。当前预设：初始价 {usd(active.config.s)} · 行权价间距 {usd(active.config.gap)} · 初始 IV {active.config.iv}%。切换标的保留各自的持仓、盈亏与撤销记录。</p>
-        {(storageError||loaded.notice)&&<p role="status" className="text-xs negative mt-3">{storageError||loaded.notice}</p>}
+        <p className="text-[11px] muted mt-3">当前预设：初始价 {usd(active.config.s)} · 行权价间距 {usd(active.config.gap)} · 初始 IV {active.config.iv}%。切换标的保留各自的持仓、盈亏与撤销记录。</p>
+        {(storageError||loaded.notice)&&<p role="status" className="text-xs negative mt-3">{storageError||loaded.notice} {storageError&&<button className="btn" onClick={()=>setRetry(n=>n+1)}>重试保存</button>}</p>}
         {showForm&&<form onSubmit={addAsset} noValidate className="divider mt-4 pt-4" aria-label="新增标的表单">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <label className="text-xs muted">标的代码<input ref={symbolInput} className="number-input mt-2" aria-label="新增标的代码" maxLength={20} placeholder="例如 AAPL" value={draft.symbol} onChange={e=>setDraft(d=>({...d,symbol:e.target.value}))}/></label>
@@ -612,7 +677,7 @@
           <div className="flex gap-2 mt-4"><button className="btn btn-primary" type="submit">创建并切换</button><button className="btn btn-ghost" type="button" onClick={()=>{setShowForm(false);setError('');}}>取消</button></div>
         </form>}
       </section>;
-      return <Terminal key={active.config.symbol} asset={active.config} initial={active.workspace} onSave={saveWorkspace} toolbar={toolbar} activeView={activeView} onViewChange={setActiveView}/>;
+      return <Terminal key={active.config.symbol} asset={active.config} initial={active.workspace} onSave={saveWorkspace} toolbar={toolbar} live={live} setLive={setLive} activeView={activeView} onViewChange={setActiveView}/>;
     }
     ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
   </script>

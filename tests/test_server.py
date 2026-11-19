@@ -77,6 +77,30 @@ class WatchlistAPITest(unittest.TestCase):
             self.assertEqual(self.request('PUT', payload)[0], 400)
         self.assertFalse(self.request()[1]['initialized'])
 
+    def test_options_workspace_roundtrip_and_conflict(self):
+        path = '/api/workspace'
+        self.assertEqual(self.request(path=path), (200, {'revision': 0, 'store': None}))
+        assets = []
+        for symbol in ['SPCX', 'TQQQ', 'CUSTOM']:
+            config = dict(symbol=symbol, name=symbol, s=100, min=65, max=135, iv=45, gap=5)
+            leg = dict(id=1, type='put', strike=95, qty=-2, entry=2.35, tag='custom')
+            workspace = dict(scenario=dict(s=97.43, iv=52, days=21, r=3.75),
+                             calc=dict(type='call', strike=105),
+                             book=dict(legs=[leg], realized=-25, mode='custom', log=[]))
+            assets.append(dict(config=config, workspace=workspace))
+        store = dict(version=1, active='CUSTOM', assets=assets)
+        payload = dict(revision=0, store=store)
+        self.assertEqual(self.request('PUT', payload, path), (200, {'revision': 1}))
+        self.assertEqual(self.request('PUT', payload, path)[0], 409)
+        server.initialize(self.database)
+        self.assertEqual(self.request(path=path), (200, dict(revision=1, store=store)))
+        assets[0]['workspace']['book']['legs'][0]['qty'] = 0
+        self.assertEqual(self.request('PUT', dict(revision=1, store=store), path)[0], 400)
+        restored = self.request(path=path)[1]
+        self.assertEqual(restored['revision'], 1)
+        self.assertEqual(restored['store']['assets'][0]['workspace']['book']['legs'][0]['qty'], -2)
+        self.assertFalse(self.request()[1]['initialized'])
+
     def test_protect_files_and_cross_origin_writes(self):
         for path in ['/data/thetatree.sqlite3', '/.git/config', '/server.py', '/not-found']:
             self.assertEqual(self.request(path=path)[0], 404)
