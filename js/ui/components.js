@@ -34,11 +34,15 @@ const paths = {
   "Risk Monitor": '<path d="M2 12h5l3-8 4 16 3-8h5"/>',
   "Trade Journal":
     '<rect x="5" y="3" width="15" height="18" rx="2"/><path d="M9 7h7m-7 5h7m-7 5h4"/>',
+  市场观察:
+    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18Z"/>',
+  模拟沙盘:
+    '<path d="M3 18h18M5 15l4-7 4 6 6-10"/><circle cx="9" cy="8" r="1.5"/>',
   Settings:
     '<path d="M3 6h5m5 0h8M3 17h10m5 0h3"/><circle cx="10" cy="6" r="2.5"/><circle cx="15" cy="17" r="2.5"/>',
   cash: '<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="12" cy="12" r="3"/>',
 };
-export const pages = Object.keys(paths).slice(0, 9);
+export const pages = Object.keys(paths).filter((name) => name !== "cash");
 export const icon = (name) =>
   '<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
   paths[name] +

@@ -38,6 +38,10 @@ import {
 } from "./ui/account.js";
 import { editor, readPosition, updateEstimate } from "./ui/editor.js";
 
+import { mountMarketWatch } from "./ui/market-watch.js";
+
+import { mountSandbox } from "./ui/sandbox.js";
+let leaveMarket, leaveSandbox;
 const app = document.querySelector("#app"),
   dialog = document.querySelector("#dialog");
 let b,
@@ -57,6 +61,8 @@ const titles = [
   "Insurance manager",
   "Risk monitor",
   "Trade journal",
+  "市场观察",
+  "模拟沙盘",
   "Workspace settings",
 ];
 const descriptions = [
@@ -68,6 +74,8 @@ const descriptions = [
   "跟踪保险预算、保费支出和保护结构。",
   "检查指派现金、覆盖水平与保险期限。",
   "按成交区分现金流和已实现收益。",
+  "查看全球市场指标、自选股报价与历史走势。",
+  "用独立模拟持仓试验比率价差、W 型结构与动态对冲。",
   "设置账户、模型参数与本地数据。",
 ];
 function page() {
@@ -85,6 +93,10 @@ function notify(message) {
   notify.timer = setTimeout(() => (el.textContent = ""), 4800);
 }
 function render() {
+  leaveSandbox?.();
+  leaveSandbox = null;
+  leaveMarket?.();
+  leaveMarket = null;
   clearChart();
   const active = page(),
     idx = pages.indexOf(active);
@@ -227,6 +239,12 @@ function render() {
     case "Trade Journal":
       content = journalPage(b, period);
       break;
+    case "市场观察":
+      content = '<div id="market-watch"></div>';
+      break;
+    case "模拟沙盘":
+      content = '<div id="sandbox"></div>';
+      break;
     case "Settings":
       content = settings(b);
       break;
@@ -254,9 +272,15 @@ function render() {
       : "") +
     "</div></div>" +
     content +
-    '<div class="foot">USD · 本地估值快照 ' +
-    b.asOf +
-    " · 初始数据为模拟持仓 · 手动报价 / 欧式 BSM</div>";
+    (["市场观察", "模拟沙盘"].includes(active)
+      ? ""
+      : '<div class="foot">USD · 本地估值快照 ' +
+        b.asOf +
+        " · 初始数据为模拟持仓 · 手动报价 / 欧式 BSM</div>");
+  if (active === "市场观察")
+    leaveMarket = mountMarketWatch(document.querySelector("#market-watch"));
+  if (active === "模拟沙盘")
+    leaveSandbox = mountSandbox(document.querySelector("#sandbox"));
   if (series) draw(series, samples(spot, legs), spot);
 }
 function modal(html) {
