@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "asOf": "2026-11-25",
+  "cash": 0,
+  "rate": 0.04,
+  "dividend": 0,
+  "quotes": { "TQQQ": 42 },
+  "journal": [],
+  "budget": 2000,
+  "minimumCoverage": 0.75,
+  "thresholds": [90, 60, 30],
+  "positions": [
+    {
+      "id": "demo-stock",
+      "symbol": "TQQQ",
+      "type": "stock",
+      "quantity": 600,
+      "multiplier": 1,
+      "entry": 65,
+      "open": "2026-11-25",
+      "commission": 0
+    },
+    {
+      "id": "demo-put",
+      "symbol": "TQQQ",
+      "type": "put",
+      "quantity": 6,
+      "multiplier": 100,
+      "strike": 30,
+      "entry": 2,
+      "market": 2,
+      "expiration": "2027-11-25",
+      "iv": 0.55,
+      "open": "2026-11-25",
+      "commission": 0
+    }
+  ]
+}

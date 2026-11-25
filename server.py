@@ -5,6 +5,7 @@ from market_data import MarketData
 import argparse
 import json
 import math
+import mimetypes
 import re
 import sqlite3
 from http import HTTPStatus
@@ -239,10 +240,14 @@ class Handler(BaseHTTPRequestHandler):
                     data = {key: data[key] for key in ('price', 'time', 'status', 'error')}
                     data['symbol'] = symbol
             self.reply(HTTPStatus.OK, data)
-        elif self.path in ('/', '/index.html'):
-            body = (ROOT / 'index.html').read_bytes()
+        elif self.path in ('/', '/index.html', '/legacy.html', '/data/demo.json') or re.fullmatch(r'/(?:js/(?:[a-z]+/)?[\w.-]+\.js|css/[\w-]+\.css)', self.path):
+            path = ROOT / (self.path.lstrip('/') or 'index.html')
+            if not path.is_file():
+                self.reply(HTTPStatus.NOT_FOUND, {'error': '未找到资源'})
+                return
+            body = path.read_bytes()
             self.send_response(HTTPStatus.OK)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Type', (mimetypes.guess_type(path.name)[0] or 'application/octet-stream') + '; charset=utf-8')
             self.send_header('Cache-Control', 'no-cache')
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
